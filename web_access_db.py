@@ -264,7 +264,7 @@ def authenticate(email, senha):
         print("Buscando usuário no banco...")
         row = conn.execute(
             """
-            SELECT id, organization_id, nome, email, senha, role, ativo
+            SELECT id, organization_id, nome, email, password_hash, role, ativo
             FROM users
             WHERE email = ?
             """,
@@ -281,8 +281,8 @@ def authenticate(email, senha):
             print("Usuário inativo")
             return None
 
-        print(f"Verificando senha: {row['senha']} vs {senha}")
-        if not check_password_hash(row["senha"], senha):
+        print(f"Verificando senha: {row['password_hash']} vs {senha}")
+        if not check_password_hash(row["password_hash"], senha):
             print("Senha incorreta")
             return None
 

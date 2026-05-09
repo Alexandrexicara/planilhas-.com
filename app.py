@@ -1259,6 +1259,8 @@ def executar_sistema_legado():
 
 
 @app.route('/executar-sistema')
+@_login_required
+
 def executar_sistema():
     """Abre as janelas do sistema original e/ou PLUS a partir do Flask."""
     try:

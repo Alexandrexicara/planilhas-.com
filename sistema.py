@@ -516,6 +516,13 @@ def importar_planilha(caminho_arquivo, cliente=None, progress_callback=None):
             if all(cell is None or str(cell).strip() == '' for cell in row):
                 continue
             
+            # PULAR LINHA DE TOTAIS/RODAPÉ - não importar como produto
+            # Detectar pela coluna CÓDIGO (índice 0 normalmente)
+            codigo_cell = str(row[0]) if len(row) > 0 else ''
+            if codigo_cell.strip().lower() == 'totais' or codigo_cell.strip().lower() == 'total':
+                print(f"DEBUG: Linha é linha de TOTAIS (código='{codigo_cell}') - IGNORANDO")
+                continue
+            
             # Extrair dados usando mapeamento direto (igual ao sistema_plus.py)
             valores = {col: '' for col in colunas_banco}  # Inicializar todas colunas vazias
             
@@ -540,34 +547,146 @@ def importar_planilha(caminho_arquivo, cliente=None, progress_callback=None):
                     else:
                         valores[col_name] = formatar_valor_celula(cell, col_name)
             
-            # Calcular TOTAL AMOUNT UMO = QUANTITY × UNIT PRICE UMO
-            if not valores.get('TOTAL AMOUNT UMO') and valores.get('QUANTITY') and valores.get('UNIT PRICE UMO'):
+            # Função para verificar se valor está vazio ou zero
+            def is_vazio_ou_zero(val):
+                if val is None:
+                    return True
+                val_str = str(val).strip()
+                if not val_str or val_str == '0' or val_str == '0.00' or val_str == '0,00':
+                    return True
                 try:
-                    # Converter valores do formato brasileiro (1.200,00 → 1200.00)
-                    def parse_br(valor):
-                        if not valor:
-                            return 0.0
-                        valor_str = str(valor).strip()
-                        # Remove separador de milhar (ponto) e troca vírgula por ponto decimal
-                        valor_str = valor_str.replace('.', '').replace(',', '.')
-                        return float(valor_str)
-                    
+                    clean = val_str.replace('.', '').replace(',', '.')
+                    return float(clean) == 0
+                except:
+                    return True
+            
+            # Converter valores do formato brasileiro (1.200,00 → 1200.00)
+            def parse_br(valor):
+                if not valor:
+                    return 0.0
+                # Se já é número, retorna direto
+                if isinstance(valor, (int, float)):
+                    return float(valor)
+                valor_str = str(valor).strip()
+                # Só converte se tiver vírgula (formato brasileiro)
+                if ',' in valor_str:
+                    valor_str = valor_str.replace('.', '').replace(',', '.')
+                return float(valor_str)
+            
+            # DEBUG: Mostrar valores ANTES do cálculo (para todas as linhas)
+            if total_importados < 5:  # Mostrar primeiras 5 linhas para debug
+                print(f"\n=== DEBUG LINHA {total_importados} ===")
+                print(f"QUANTITY: '{valores.get('QUANTITY')}'")
+                print(f"UNIT PRICE UMO: '{valores.get('UNIT PRICE UMO')}'")
+                print(f"TOTAL AMOUNT UMO (antes): '{valores.get('TOTAL AMOUNT UMO')}'")
+                print(f"NET WEIGHT / PC( g ): '{valores.get('NET WEIGHT / PC( g )')}'")
+                print(f"TOTAL NET WEIGHT( kg ) (antes): '{valores.get('TOTAL NET WEIGHT( kg )')}'")
+                print(f"GROSS WEIGHT / PC( g ): '{valores.get('GROSS WEIGHT / PC( g )')}'")
+                print(f"TOTAL GROSS WEIGHT( kg ) (antes): '{valores.get('TOTAL GROSS WEIGHT( kg )')}'")
+            
+            # Calcular TOTAL AMOUNT UMO = QUANTITY × UNIT PRICE UMO (SEMPRE calcular se tiver dados)
+            tem_qty = valores.get('QUANTITY') and str(valores.get('QUANTITY')).strip()
+            tem_price = valores.get('UNIT PRICE UMO') and str(valores.get('UNIT PRICE UMO')).strip()
+            
+            if total_importados < 5:
+                print(f"TOTAL AMOUNT - tem_qty={tem_qty}, tem_price={tem_price}")
+            
+            if tem_qty and tem_price:
+                try:
                     quantity = parse_br(valores['QUANTITY'])
                     unit_price = parse_br(valores['UNIT PRICE UMO'])
                     total_amount = quantity * unit_price
                     
-                    # Formatar resultado no padrão brasileiro (ex: 228,00)
                     if total_amount == int(total_amount):
                         valores['TOTAL AMOUNT UMO'] = f"{int(total_amount)},00"
                     else:
-                        # Duas casas decimais, troca ponto por vírgula
                         valores['TOTAL AMOUNT UMO'] = f"{total_amount:.2f}".replace('.', ',')
                     
-                    if total_importados < 3:
-                        print(f"DEBUG: Calculo: {valores['QUANTITY']} × {valores['UNIT PRICE UMO']} = {valores['TOTAL AMOUNT UMO']}")
+                    print(f"[OK] TOTAL AMOUNT calculado: {valores['QUANTITY']} × {valores['UNIT PRICE UMO']} = {valores['TOTAL AMOUNT UMO']}")
                 except Exception as e:
-                    if total_importados < 3:
-                        print(f"DEBUG: Erro no cálculo: {e}")
+                    print(f"[ERRO] Erro no calculo TOTAL AMOUNT: {e}")
+            elif total_importados < 5:
+                print(f"[PULOU] TOTAL AMOUNT - qty={valores.get('QUANTITY')}, price={valores.get('UNIT PRICE UMO')}")
+            
+            # Calcular TOTAL NET WEIGHT (kg) = NET WEIGHT / PC( g ) × QUANTITY
+            # Nome correto da coluna: 'NET WEIGHT / PC( g )'
+            net_weight_val = valores.get('NET WEIGHT / PC( g )') or valores.get('NET WEIGHT PC')
+            tem_nw = net_weight_val and str(net_weight_val).strip()
+            
+            if total_importados < 5:
+                print(f"NET WEIGHT valor: '{net_weight_val}' (tem={tem_nw})")
+            
+            if tem_qty and tem_nw:
+                try:
+                    net_weight_pc = parse_br(net_weight_val)
+                    quantity = parse_br(valores['QUANTITY'])
+                    total_net = net_weight_pc * quantity
+                    
+                    if total_net == int(total_net):
+                        valores['TOTAL NET WEIGHT( kg )'] = f"{int(total_net)},00"
+                    else:
+                        valores['TOTAL NET WEIGHT( kg )'] = f"{total_net:.2f}".replace('.', ',')
+                    
+                    print(f"[OK] TOTAL NET WEIGHT calculado: {net_weight_val} × {valores['QUANTITY']} = {valores['TOTAL NET WEIGHT( kg )']}")
+                except Exception as e:
+                    print(f"[ERRO] Erro no calculo TOTAL NET WEIGHT: {e}")
+            elif total_importados < 5:
+                print(f"[PULOU] TOTAL NET WEIGHT - qty={valores.get('QUANTITY')}, nw={net_weight_val}")
+            
+            # Calcular TOTAL GROSS WEIGHT (kg) = GROSS WEIGHT / PC( g ) × QUANTITY
+            # Nome correto da coluna: 'GROSS WEIGHT / PC( g )'
+            gross_weight_val = valores.get('GROSS WEIGHT / PC( g )') or valores.get('GROSS WEIGHT PC')
+            tem_gw = gross_weight_val and str(gross_weight_val).strip()
+            
+            if total_importados < 5:
+                print(f"GROSS WEIGHT valor: '{gross_weight_val}' (tem={tem_gw})")
+            
+            if tem_qty and tem_gw:
+                try:
+                    gross_weight_pc = parse_br(gross_weight_val)
+                    quantity = parse_br(valores['QUANTITY'])
+                    total_gross = gross_weight_pc * quantity
+                    
+                    if total_gross == int(total_gross):
+                        valores['TOTAL GROSS WEIGHT( kg )'] = f"{int(total_gross)},00"
+                    else:
+                        valores['TOTAL GROSS WEIGHT( kg )'] = f"{total_gross:.2f}".replace('.', ',')
+                    
+                    print(f"[OK] TOTAL GROSS WEIGHT calculado: {gross_weight_val} × {valores['QUANTITY']} = {valores['TOTAL GROSS WEIGHT( kg )']}")
+                except Exception as e:
+                    print(f"[ERRO] Erro no calculo TOTAL GROSS WEIGHT: {e}")
+            elif total_importados < 5:
+                print(f"[PULOU] TOTAL GROSS WEIGHT - qty={valores.get('QUANTITY')}, gw={gross_weight_val}")
+            
+            # Calcular TOTAL CBM = (LENGTH × WIDTH × HEIGHT × TOTAL CTNS) / 1.000.000.000
+            length_val = valores.get('LENGTH CTN')
+            width_val = valores.get('WIDTH CTN')
+            height_val = valores.get('HEIGHT CTN')
+            ctns_val = valores.get('TOTAL CTNS')
+            
+            tem_dimensoes = length_val and str(length_val).strip() and width_val and str(width_val).strip() and height_val and str(height_val).strip()
+            tem_ctns = ctns_val and str(ctns_val).strip()
+            
+            if tem_dimensoes and tem_ctns:
+                try:
+                    length = parse_br(length_val)
+                    width = parse_br(width_val)
+                    height = parse_br(height_val)
+                    ctns = parse_br(ctns_val)
+                    
+                    # CBM = (L × W × H) / 1.000.000.000 (mm³ → m³) × CTNS
+                    cbm = (length * width * height * ctns) / 1000000000
+                    
+                    if cbm == int(cbm):
+                        valores['TOTAL CBM'] = f"{int(cbm)},00"
+                    else:
+                        valores['TOTAL CBM'] = f"{cbm:.4f}".replace('.', ',')
+                    
+                    print(f"[OK] TOTAL CBM calculado: ({length} × {width} × {height} × {ctns}) / 10⁹ = {valores['TOTAL CBM']}")
+                except Exception as e:
+                    print(f"[ERRO] Erro no calculo TOTAL CBM: {e}")
+            elif total_importados < 5:
+                print(f"[PULOU] TOTAL CBM - dimensoes={tem_dimensoes}, ctns={tem_ctns}")
             
             # Adicionar campos fixos (igual ao sistema_plus.py)
             valores['cliente'] = cliente
@@ -767,15 +886,30 @@ def importar_arquivos_selecionados(arquivos, progress_callback=None):
 # FUNÇÕES DE BUSCA
 # ==============================
 
-def buscar_produtos(termo='', cliente='Todos'):
+def buscar_produtos(termo='', cliente='Todos', ordem_colunas=None):
     """Busca produtos no banco de dados - versão totalmente dinâmica"""
     # Obter colunas dinâmicas do banco
     colunas_banco = get_colunas_banco()
-    colunas_select = [c for c in colunas_banco.keys() if c != 'id']
     
-    # Construir query dinâmica com TODAS as colunas
-    colunas_banco = get_colunas_banco()
-    colunas_select = [c for c in colunas_banco.keys() if c != 'id']
+    # Se uma ordem específica foi passada, use-a; senão use a ordem do banco
+    if ordem_colunas:
+        # Converter para lowercase para comparação case-insensitive
+        ordem_lower = [c.lower() for c in ordem_colunas]
+        colunas_select = []
+        # Primeiro adicionar na ordem especificada
+        for col_ordem in ordem_colunas:
+            for col_banco in colunas_banco.keys():
+                if col_banco.lower() == col_ordem.lower() and col_banco != 'id':
+                    colunas_select.append(col_banco)
+                    break
+        # Depois adicionar colunas do banco que não estão na ordem especificada
+        for col_banco in colunas_banco.keys():
+            if col_banco != 'id' and col_banco.lower() not in ordem_lower:
+                colunas_select.append(col_banco)
+    else:
+        colunas_select = [c for c in colunas_banco.keys() if c != 'id']
+    
+    # Construir query dinâmica com TODAS as colunas na ordem correta
     sql_colunas = ', '.join([f'"{c}"' for c in colunas_select])
     query = f"SELECT {sql_colunas} FROM produtos WHERE 1=1"
     params = []
@@ -1012,6 +1146,9 @@ class SistemaPlanilhas:
         self.criar_interface()
         self.atualizar_estatisticas()
         self.atualizar_lista_clientes()
+        
+        # Carregar dados automaticamente na inicialização
+        self.janela.after(100, self.executar_busca)
     
     def carregar_configuracao_exportacoes(self):
         """Carrega a configuracao da pasta exportacoes de um arquivo JSON"""
@@ -1498,47 +1635,170 @@ class SistemaPlanilhas:
             termo = "*"  # Busca todos os produtos
         
         try:
-            resultados = buscar_produtos(termo, cliente)
+            # Passar a ordem das colunas da tabela para garantir consistência
+            ordem_colunas = list(self.colunas)
+            resultados = buscar_produtos(termo, cliente, ordem_colunas)
+            
+            colunas_list = list(self.colunas)
+            print(f"DEBUG: Colunas disponíveis: {colunas_list}")
             
             # Calcular total da coluna TOTAL CTNS
             total_ctns = 0
             idx_total_ctns = None
-            colunas_list = list(self.colunas)
             if 'TOTAL CTNS' in colunas_list:
                 idx_total_ctns = colunas_list.index('TOTAL CTNS')
+                print(f"DEBUG: idx_total_ctns = {idx_total_ctns}")
+            else:
+                print(f"DEBUG: 'TOTAL CTNS' NÃO encontrado")
+            
+            # Calcular total da coluna TOTAL AMOUNT UMO
+            total_amount = 0.0
+            idx_total_amount = None
+            if 'TOTAL AMOUNT UMO' in colunas_list:
+                idx_total_amount = colunas_list.index('TOTAL AMOUNT UMO')
+                print(f"DEBUG: idx_total_amount = {idx_total_amount}")
+            else:
+                print(f"DEBUG: 'TOTAL AMOUNT UMO' NÃO encontrado")
+            
+            # Calcular total da coluna TOTAL NET WEIGHT (kg)
+            total_net = 0.0
+            idx_total_net = None
+            # Verificar variações do nome da coluna (maiúsculas/minúsculas)
+            for col in colunas_list:
+                if 'TOTAL NET WEIGHT' in col.upper() and 'KG' in col.upper():
+                    idx_total_net = colunas_list.index(col)
+                    print(f"DEBUG: idx_total_net = {idx_total_net} (coluna='{col}')")
+                    break
+            if idx_total_net is None:
+                print(f"DEBUG: 'TOTAL NET WEIGHT( kg )' NÃO encontrado. Colunas: {colunas_list}")
             
             # Calcular total da coluna TOTAL GROSS WEIGHT (KG)
             total_gross = 0.0
             idx_gross = None
-            if 'TOTAL GROSS WEIGHT( kg )' in colunas_list:
-                idx_gross = colunas_list.index('TOTAL GROSS WEIGHT( kg )')
+            # Verificar variações do nome da coluna (maiúsculas/minúsculas)
+            for col in colunas_list:
+                if 'TOTAL GROSS WEIGHT' in col.upper() and 'KG' in col.upper():
+                    idx_gross = colunas_list.index(col)
+                    print(f"DEBUG: idx_gross = {idx_gross} (coluna='{col}')")
+                    break
+            if idx_gross is None:
+                print(f"DEBUG: 'TOTAL GROSS WEIGHT( kg )' NÃO encontrado. Colunas: {colunas_list}")
             
-            for resultado in resultados:
+            # Calcular total da coluna TOTAL CBM
+            total_cbm = 0.0
+            idx_cbm = None
+            for col in colunas_list:
+                if 'CBM' in col.upper():
+                    idx_cbm = colunas_list.index(col)
+                    print(f"DEBUG: idx_cbm = {idx_cbm} (coluna='{col}')")
+                    break
+            if idx_cbm is None:
+                print(f"DEBUG: 'TOTAL CBM' NÃO encontrado. Colunas: {colunas_list}")
+            
+            for i, resultado in enumerate(resultados):
                 self.tabela.insert('', 'end', values=resultado)
+                # DEBUG: Mostrar primeira linha para verificar índices
+                if i == 0:
+                    print(f"DEBUG PRIMEIRA LINHA: idx_ctns={idx_total_ctns}, idx_amount={idx_total_amount}, idx_net={idx_total_net}, idx_gross={idx_gross}")
+                    print(f"DEBUG VALORES LINHA 0: CTNS='{resultado[idx_total_ctns] if idx_total_ctns else 'N/A'}', Amount='{resultado[idx_total_amount] if idx_total_amount else 'N/A'}', Net='{resultado[idx_total_net] if idx_total_net else 'N/A'}', Gross='{resultado[idx_gross] if idx_gross else 'N/A'}'")
                 # Somar CTNS se a coluna existir
                 if idx_total_ctns is not None and idx_total_ctns < len(resultado):
                     try:
-                        val = str(resultado[idx_total_ctns]).replace('.', '').replace(',', '.')
-                        if val:
+                        val_raw = resultado[idx_total_ctns]
+                        val = str(val_raw).replace('.', '').replace(',', '.')
+                        if val and val.replace('.','').isdigit():
                             total_ctns += float(val)
-                    except:
-                        pass
+                            if i < 3:  # Debug primeiras 3 linhas
+                                print(f"DEBUG SOMA CTNS linha {i}: raw='{val_raw}' -> parsed={val} -> total={total_ctns}")
+                    except Exception as e:
+                        if i < 3:
+                            print(f"DEBUG ERRO CTNS linha {i}: {e}")
+                # Somar TOTAL AMOUNT se a coluna existir
+                if idx_total_amount is not None and idx_total_amount < len(resultado):
+                    try:
+                        val_raw = resultado[idx_total_amount]
+                        val = str(val_raw).replace('.', '').replace(',', '.')
+                        if val:
+                            total_amount += float(val)
+                            if i < 3:
+                                print(f"DEBUG SOMA AMOUNT linha {i}: raw='{val_raw}' -> parsed={val} -> total={total_amount}")
+                    except Exception as e:
+                        if i < 3:
+                            print(f"DEBUG ERRO AMOUNT linha {i}: {e}")
+                # Somar TOTAL NET WEIGHT se a coluna existir
+                if idx_total_net is not None and idx_total_net < len(resultado):
+                    try:
+                        val_raw = resultado[idx_total_net]
+                        val = str(val_raw).replace('.', '').replace(',', '.')
+                        if val:
+                            total_net += float(val)
+                            if i < 3:
+                                print(f"DEBUG SOMA NET linha {i}: raw='{val_raw}' -> parsed={val} -> total={total_net}")
+                    except Exception as e:
+                        if i < 3:
+                            print(f"DEBUG ERRO NET linha {i}: {e}")
                 # Somar GROSS WEIGHT se a coluna existir
                 if idx_gross is not None and idx_gross < len(resultado):
                     try:
-                        val = str(resultado[idx_gross]).replace('.', '').replace(',', '.')
+                        val_raw = resultado[idx_gross]
+                        val = str(val_raw).replace('.', '').replace(',', '.')
                         if val:
                             total_gross += float(val)
-                    except:
-                        pass
+                            if i < 3:
+                                print(f"DEBUG SOMA GROSS linha {i}: raw='{val_raw}' -> parsed={val} -> total={total_gross}")
+                    except Exception as e:
+                        if i < 3:
+                            print(f"DEBUG ERRO GROSS linha {i}: {e}")
+                # Somar TOTAL CBM se a coluna existir
+                if idx_cbm is not None and idx_cbm < len(resultado):
+                    try:
+                        val_raw = resultado[idx_cbm]
+                        val = str(val_raw).replace('.', '').replace(',', '.')
+                        if val:
+                            total_cbm += float(val)
+                            if i < 3:
+                                print(f"DEBUG SOMA CBM linha {i}: raw='{val_raw}' -> parsed={val} -> total={total_cbm}")
+                    except Exception as e:
+                        if i < 3:
+                            print(f"DEBUG ERRO CBM linha {i}: {e}")
             
-            # Mostrar resultados + totais
+            # Mostrar resultados + totais (SEMPRE mostrar, mesmo quando zero)
+            print(f"DEBUG TOTAIS: CTNS={total_ctns}, Amount={total_amount}, Net={total_net}, Gross={total_gross}, CBM={total_cbm}")
             texto_resultado = f"{len(resultados)} resultados"
-            if total_ctns > 0:
-                texto_resultado += f" | Total CTNS: {int(total_ctns)}"
-            if total_gross > 0:
-                texto_resultado += f" | Total Gross: {total_gross:.2f}"
+            texto_resultado += f" | Total CTNS: {int(total_ctns)}"
+            texto_resultado += f" | Total Amount: {total_amount:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            texto_resultado += f" | Total Net: {total_net:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            texto_resultado += f" | Total Gross: {total_gross:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            texto_resultado += f" | Total CBM: {total_cbm:,.4f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            print(f"DEBUG: texto_resultado = '{texto_resultado}'")
             self.label_resultados.config(text=texto_resultado)
+            
+            # ADICIONAR LINHA DE TOTAIS NA TABELA
+            try:
+                # Criar lista de valores vazios para a linha de totais
+                totais_row = [''] * len(colunas_list)
+                # Preencher a coluna ITEM com 'TOTAL'
+                if 'ITEM' in colunas_list:
+                    totais_row[colunas_list.index('ITEM')] = '★ TOTAL'
+                # Preencher as colunas de totais
+                if idx_total_ctns is not None:
+                    totais_row[idx_total_ctns] = int(total_ctns)
+                if idx_total_amount is not None:
+                    totais_row[idx_total_amount] = f"{total_amount:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                if idx_total_net is not None:
+                    totais_row[idx_total_net] = f"{total_net:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                if idx_gross is not None:
+                    totais_row[idx_gross] = f"{total_gross:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                if idx_cbm is not None:
+                    totais_row[idx_cbm] = f"{total_cbm:,.4f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                # Inserir linha de totais com tag especial
+                self.tabela.insert('', 'end', values=totais_row, tags=('total',))
+                # Configurar cor de fundo para a linha de totais
+                self.tabela.tag_configure('total', background='#FFD700', font=('Arial', 9, 'bold'))
+                print(f"DEBUG: Linha de totais inserida na tabela")
+            except Exception as e:
+                print(f"DEBUG: Erro ao inserir linha de totais: {e}")
+            
             self.status_bar.config(text=f"Busca concluída: {len(resultados)} resultados")
             
         except Exception as e:
