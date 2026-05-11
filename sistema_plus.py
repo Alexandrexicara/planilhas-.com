@@ -357,9 +357,6 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
             tem_qty = dados.get('quantity') and str(dados.get('quantity')).strip()
             tem_valor = dados.get('valor') and str(dados.get('valor')).strip()
             
-            if total_importados < 5:
-                print(f"[DEBUG PLUS] qty_bruto='{dados.get('quantity')}', qty_parse={parse_br(dados['quantity']) if dados.get('quantity') else 'N/A'}, valor={tem_valor}")
-            
             if tem_qty and tem_valor:
                 try:
                     def parse_br(valor):
@@ -375,6 +372,10 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
                         return float(valor_str)
                     
                     quantity = parse_br(dados['quantity'])
+                    
+                    # DEBUG após definir parse_br
+                    if total_importados < 5:
+                        print(f"[DEBUG PLUS] qty_bruto='{dados.get('quantity')}', qty_parse={quantity}, valor={tem_valor}")
                     unit_price = parse_br(dados['valor'])
                     total_amount = quantity * unit_price
                     
@@ -414,8 +415,8 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
                     
                     net_weight_pc = parse_br(dados['net_weight_pc'])
                     quantity = parse_br(dados['quantity'])
-                    # Converter de GRAMAS para KG (dividir por 1000)
-                    total_net = (net_weight_pc * quantity) / 1000
+                    # Calcular TOTAL NET (já em kg)
+                    total_net = net_weight_pc * quantity
                     
                     if total_net == int(total_net):
                         dados['peso'] = f"{int(total_net)},00"
@@ -428,30 +429,52 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
             elif total_importados < 5:
                 print(f"[PULOU] TOTAL NET WEIGHT - qty={tem_qty}, nw={tem_nw}")
             
-            # Calcular TOTAL GROSS WEIGHT (kg) = GROSS_WEIGHT_PC × QUANTITY
-            tem_gw = dados.get('gross_weight_pc') and str(dados.get('gross_weight_pc')).strip()
+            # TOTAL GROSS WEIGHT: Usar valor da planilha se existir, senão calcular
+            total_gross_excel = dados.get('gross_weight') and str(dados.get('gross_weight')).strip()
+            tem_gw_pc = dados.get('gross_weight_pc') and str(dados.get('gross_weight_pc')).strip()
             
             if total_importados < 5:
-                print(f"[DEBUG PLUS] gross_weight_pc={tem_gw}, gross_weight_antes={dados.get('gross_weight')}")
+                print(f"[DEBUG PLUS] gross_weight_excel='{total_gross_excel}', gross_weight_pc='{tem_gw_pc}'")
             
-            if tem_qty and tem_gw:
+            # Se já tem valor total na planilha, usar ele (formatar corretamente)
+            if total_gross_excel and total_gross_excel not in ['', '0', '0,00', '0.00']:
                 try:
                     def parse_br(valor):
                         if not valor:
                             return 0.0
-                        # Se já é número, retorna direto
                         if isinstance(valor, (int, float)):
                             return float(valor)
                         valor_str = str(valor).strip()
-                        # Só converte se tiver vírgula (formato brasileiro)
+                        if ',' in valor_str:
+                            valor_str = valor_str.replace('.', '').replace(',', '.')
+                        return float(valor_str)
+                    
+                    # Normalizar o formato para brasileiro
+                    val_num = parse_br(total_gross_excel)
+                    if val_num == int(val_num):
+                        dados['gross_weight'] = f"{int(val_num)},00"
+                    else:
+                        dados['gross_weight'] = f"{val_num:.2f}".replace('.', ',')
+                    
+                    print(f"[OK] TOTAL GROSS WEIGHT importado da planilha: {dados['gross_weight']}")
+                except Exception as e:
+                    print(f"[ERRO] Erro ao formatar TOTAL GROSS WEIGHT: {e}")
+            # Se não tem total mas tem per-piece, calcular
+            elif tem_qty and tem_gw_pc:
+                try:
+                    def parse_br(valor):
+                        if not valor:
+                            return 0.0
+                        if isinstance(valor, (int, float)):
+                            return float(valor)
+                        valor_str = str(valor).strip()
                         if ',' in valor_str:
                             valor_str = valor_str.replace('.', '').replace(',', '.')
                         return float(valor_str)
                     
                     gross_weight_pc = parse_br(dados['gross_weight_pc'])
                     quantity = parse_br(dados['quantity'])
-                    # Converter de GRAMAS para KG (dividir por 1000)
-                    total_gross = (gross_weight_pc * quantity) / 1000
+                    total_gross = gross_weight_pc * quantity
                     
                     if total_gross == int(total_gross):
                         dados['gross_weight'] = f"{int(total_gross)},00"
@@ -462,7 +485,7 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
                 except Exception as e:
                     print(f"[ERRO] Erro no calculo TOTAL GROSS WEIGHT: {e}")
             elif total_importados < 5:
-                print(f"[PULOU] TOTAL GROSS WEIGHT - qty={tem_qty}, gw={tem_gw}")
+                print(f"[PULOU] TOTAL GROSS WEIGHT - sem valor na planilha e sem dados para calcular")
             
             # Calcular TOTAL CBM = (LENGTH × WIDTH × HEIGHT × TOTAL CTNS) / 1.000.000
             # Convertendo mm³ para m³ (dividir por 1.000.000.000) e multiplicando por CTNS
@@ -503,7 +526,7 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
                     else:
                         dados['cbm'] = f"{cbm:.4f}".replace('.', ',')
                     
-                    print(f"[OK] TOTAL CBM calculado: ({length} × {width} × {height} × {ctns}) / 10⁹ = {dados['cbm']}")
+                    print(f"[OK] TOTAL CBM calculado: ({length} x {width} x {height} x {ctns}) / 1000000000 = {dados['cbm']}")
                 except Exception as e:
                     print(f"[ERRO] Erro no calculo TOTAL CBM: {e}")
             elif total_importados < 5:
@@ -1367,6 +1390,17 @@ class SistemaPlanilhasPlus:
             if idx_cbm is None:
                 print(f"DEBUG: 'TOTAL CBM' NÃO encontrado. Colunas: {colunas_list}")
             
+            # Calcular total da coluna QUANTITY
+            total_quantity = 0.0
+            idx_quantity = None
+            for col in colunas_list:
+                if col.upper() == 'QUANTITY':
+                    idx_quantity = colunas_list.index(col)
+                    print(f"DEBUG: idx_quantity = {idx_quantity} (coluna='{col}')")
+                    break
+            if idx_quantity is None:
+                print(f"DEBUG: 'QUANTITY' NÃO encontrado. Colunas: {colunas_list}")
+            
             for i, resultado in enumerate(resultados):
                 self.tabela_plus.insert('', 'end', values=resultado)
                 # DEBUG: Mostrar primeira linha para verificar índices
@@ -1433,10 +1467,23 @@ class SistemaPlanilhasPlus:
                     except Exception as e:
                         if i < 3:
                             print(f"[PLUS] DEBUG ERRO CBM linha {i}: {e}")
+                # Somar QUANTITY se a coluna existir
+                if idx_quantity is not None and idx_quantity < len(resultado):
+                    try:
+                        val_raw = resultado[idx_quantity]
+                        val = str(val_raw).replace('.', '').replace(',', '.')
+                        if val:
+                            total_quantity += float(val)
+                            if i < 3:
+                                print(f"[PLUS] DEBUG SOMA QUANTITY linha {i}: raw='{val_raw}' -> parsed={val} -> total={total_quantity}")
+                    except Exception as e:
+                        if i < 3:
+                            print(f"[PLUS] DEBUG ERRO QUANTITY linha {i}: {e}")
             
             # Mostrar resultados + totais (SEMPRE mostrar, mesmo quando zero)
-            print(f"DEBUG TOTAIS: CTNS={total_ctns}, Amount={total_amount}, Net={total_net}, Gross={total_gross}, CBM={total_cbm}")
+            print(f"DEBUG TOTAIS: CTNS={total_ctns}, Amount={total_amount}, Net={total_net}, Gross={total_gross}, CBM={total_cbm}, Qty={total_quantity}")
             texto_resultado = f"{len(resultados):,} resultados"
+            texto_resultado += f" | Total Qty: {int(total_quantity)}"
             texto_resultado += f" | Total CTNS: {int(total_ctns)}"
             texto_resultado += f" | Total Amount: {total_amount:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             texto_resultado += f" | Total Net: {total_net:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
@@ -1463,6 +1510,8 @@ class SistemaPlanilhasPlus:
                     totais_row[idx_gross] = f"{total_gross:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                 if idx_cbm is not None:
                     totais_row[idx_cbm] = f"{total_cbm:,.4f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                if idx_quantity is not None:
+                    totais_row[idx_quantity] = int(total_quantity)
                 # Inserir linha de totais com tag especial
                 self.tabela_plus.insert('', 'end', values=totais_row, tags=('total',))
                 # Configurar cor de fundo para a linha de totais
