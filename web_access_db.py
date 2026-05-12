@@ -42,29 +42,50 @@ def connect():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                senha TEXT NOT NULL,
-                nome TEXT,
-                role TEXT DEFAULT 'user',
-                ativo INTEGER DEFAULT 1,
                 organization_id INTEGER,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS organizations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nome TEXT NOT NULL,
-                email TEXT NOT NULL,
-                payment_status TEXT DEFAULT 'pending',
-                payment_amount REAL,
-                payment_txid TEXT,
-                payment_qr_code TEXT,
-                payment_pix_key TEXT,
-                payment_updated_at TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'collab',
+                ativo INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
             )
         """)
+    elif os.environ.get('RENDER') and os.path.exists(db_path):
+        # Migração: verificar se a coluna senha existe e renomear para password_hash
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'senha' in columns and 'password_hash' not in columns:
+            print("[MIGRAÇÃO] Renomeando coluna 'senha' para 'password_hash'")
+            # SQLite não suporta ALTER COLUMN diretamente, precisa recriar a tabela
+            cursor.execute("""
+                CREATE TABLE users_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    organization_id INTEGER,
+                    nome TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'collab',
+                    ativo INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO users_new (id, organization_id, nome, email, password_hash, role, ativo, created_at)
+                SELECT id, organization_id, nome, email, senha, role, ativo, created_at FROM users
+            """)
+            cursor.execute("DROP TABLE users")
+            cursor.execute("ALTER TABLE users_new RENAME TO users")
+            conn.commit()
+            print("[MIGRAÇÃO] Concluída com sucesso")
+        conn.close()
+    
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
         conn.execute("""
             CREATE TABLE IF NOT EXISTS imagens_upload (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +215,7 @@ def create_user(organization_id, nome, email, senha, role="collab", ativo=1):
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO users (organization_id, nome, email, senha, role, ativo, created_at)
+            INSERT INTO users (organization_id, nome, email, password_hash, role, ativo, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -227,7 +248,7 @@ def ensure_superadmin(email, senha):
             conn.execute(
                 """
                 UPDATE users
-                SET senha = ?, role = 'superadmin', ativo = 1
+                SET password_hash = ?, role = 'superadmin', ativo = 1
                 WHERE id = ?
                 """,
                 (password_hash, existing["id"]),
@@ -238,7 +259,7 @@ def ensure_superadmin(email, senha):
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO users (organization_id, nome, email, senha, role, ativo, created_at)
+            INSERT INTO users (organization_id, nome, email, password_hash, role, ativo, created_at)
             VALUES (NULL, 'Criador', ?, ?, 'superadmin', 1, ?)
             """,
             (email_norm, password_hash, _utcnow_str()),
