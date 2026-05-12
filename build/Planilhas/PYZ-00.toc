@@ -2693,6 +2693,7 @@
   ('uuid',
    'C:\\Users\\Positivo\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\uuid.py',
    'PYMODULE'),
+  ('web_access_db', 'E:\\planilhas.com\\web_access_db.py', 'PYMODULE'),
   ('web_access_db_postgres',
    'E:\\planilhas.com\\web_access_db_postgres.py',
    'PYMODULE'),
