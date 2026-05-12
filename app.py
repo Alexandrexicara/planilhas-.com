@@ -198,12 +198,22 @@ if IS_RENDER:
         result = _ensure_superadmin("superadmin@planilhas.com", "GpA1XmI86lGB309W")
         print(f"Superadmin garantido: {result}")
         
+        # Criar admin padrão (admin@planilhas.com / admin123)
+        result_admin = _ensure_superadmin("admin@planilhas.com", "admin123")
+        print(f"Admin garantido: {result_admin}")
+        
         # Testar autenticação
         test_user = _auth_user("superadmin@planilhas.com", "GpA1XmI86lGB309W")
         if test_user:
             print("Superadmin autenticado com sucesso!")
         else:
             print("ERRO: Superadmin não autenticou!")
+        
+        test_admin = _auth_user("admin@planilhas.com", "admin123")
+        if test_admin:
+            print("Admin autenticado com sucesso!")
+        else:
+            print("ERRO: Admin não autenticou!")
             
     except Exception as e:
         print(f"ERRO NA INICIALIZACAO DO RENDER: {e}")
