@@ -86,23 +86,6 @@ def connect():
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS imagens_upload (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT NOT NULL,
-                nome_original TEXT NOT NULL,
-                url TEXT NOT NULL,
-                tipo TEXT,
-                tamanho INTEGER,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
-        conn.close()
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def init_db():
