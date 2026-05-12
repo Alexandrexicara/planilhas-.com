@@ -149,6 +149,14 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 _init_access_db()
 _ensure_superadmin(os.environ.get("PLANILHAS_CREATOR_EMAIL"), os.environ.get("PLANILHAS_CREATOR_PASSWORD"))
 
+# Garantir admin padrão em qualquer ambiente (local, exe, Render)
+try:
+    _ensure_superadmin("admin@planilhas.com", "admin123")
+    _ensure_superadmin("superadmin@planilhas.com", "GpA1XmI86lGB309W")
+    print("[INIT] Admins padrão garantidos: admin@planilhas.com / superadmin@planilhas.com")
+except Exception as _e:
+    print(f"[AVISO] Não foi possível criar admins padrão: {_e}")
+
 # Pastas de runtime (serverless so pode escrever em /tmp)
 for runtime_path in [RUNTIME_DIR, UPLOAD_DIR, TEMP_IMAGES_DIR, STATIC_UPLOADS_DIR]:
     try:
@@ -1531,12 +1539,17 @@ def executar_app():
     """Inicializa o Flask em modo desktop/web sem abrir console de debug."""
     port = int(os.environ.get("PORT", 5000))
     debug_flag = False  # SEMPRE false
-    host = '0.0.0.0' if (IS_VERCEL or IS_RENDER) else '127.0.0.1'
-    running_desktop = (os.name == 'nt') and (not IS_VERCEL) and (not IS_RENDER) and host == '127.0.0.1'
+    # Modo rede local: PLANILHAS_LAN=1 permite acesso de outros PCs no mesmo WiFi
+    lan_mode = os.environ.get('PLANILHAS_LAN', '0') == '1'
+    if IS_VERCEL or IS_RENDER or lan_mode:
+        host = '0.0.0.0'
+    else:
+        host = '127.0.0.1'
+    running_desktop = (os.name == 'nt') and (not IS_VERCEL) and (not IS_RENDER)
     running_frozen = bool(getattr(sys, 'frozen', False))
 
     # No desktop, o executavel nao tem janela. Abrir o navegador evita "nao abriu nada".
-    auto_open_browser = running_desktop
+    auto_open_browser = running_desktop and host == '127.0.0.1'
 
     log_desktop(f"Startup: frozen={running_frozen} cwd={os.getcwd()} base_dir={BASE_DIR} host={host} port={port}")
     
@@ -1544,12 +1557,25 @@ def executar_app():
     print(f"\n{'='*60}")
     print(f">> SERVIDOR RODANDO!")
     print(f"{'='*60}")
-    print(f"[IMG] Upload de Imagens: http://127.0.0.1:{port}/upload-imagens")
-    print(f"[HOME] Página Inicial: http://127.0.0.1:{port}/")
+    if host == '0.0.0.0':
+        # Descobrir IP local para informar aos colegas de rede
+        try:
+            import socket as _sk
+            _s = _sk.socket(_sk.AF_INET, _sk.SOCK_DGRAM)
+            _s.connect(('8.8.8.8', 80))
+            _local_ip = _s.getsockname()[0]
+            _s.close()
+        except Exception:
+            _local_ip = '127.0.0.1'
+        print(f"[LAN] Acesso em rede local: http://{_local_ip}:{port}/")
+        print(f"[LOCAL] Acesso neste PC: http://127.0.0.1:{port}/")
+    else:
+        print(f"[IMG] Upload de Imagens: http://127.0.0.1:{port}/upload-imagens")
+        print(f"[HOME] Página Inicial: http://127.0.0.1:{port}/")
     print(f"{'='*60}\n")
 
-    if auto_open_browser and host == '127.0.0.1':
-        abrir_navegador_quando_pronto(f"http://127.0.0.1:{port}", host, port)
+    if auto_open_browser:
+        abrir_navegador_quando_pronto(f"http://127.0.0.1:{port}", '127.0.0.1', port)
 
     try:
         app.run(
