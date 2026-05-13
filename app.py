@@ -440,6 +440,28 @@ def _build_system_status():
         "distribuicao_desktop": get_desktop_distribution_info(),
     }
 
+    # Ambiente web (Render/Vercel): não mostra erros de módulos desktop.
+    # Os módulos Tkinter (sistema.py, sistema_plus.py) só fazem sentido local.
+    ambiente_gui = ambiente_desktop_disponivel()
+    dados_sistema["ambiente_gui"] = ambiente_gui
+    dados_sistema["ambiente_nome"] = nome_ambiente_execucao()
+    if not ambiente_gui:
+        dados_sistema["mensagem"] = "Versão web online. Use o menu para navegar."
+        dados_sistema["modulos_carregados"] = [
+            "[OK] Interface web carregada",
+            "[OK] Banco de dados conectado",
+            "[OK] Sistema pronto para importar e buscar planilhas",
+        ]
+        # Tenta carregar estatisticas do banco (nao depende de Tkinter)
+        try:
+            if sistema_plus is not None and hasattr(sistema_plus, "contar_produtos_plus"):
+                dados_sistema["total_produtos"] = sistema_plus.contar_produtos_plus()
+            if sistema_plus is not None and hasattr(sistema_plus, "contar_planilhas_plus"):
+                dados_sistema["total_planilhas"] = sistema_plus.contar_planilhas_plus()
+        except Exception:
+            pass
+        return dados_sistema
+
     try:
         if sistema is not None:
             dados_sistema["modulos_carregados"].append("[OK] sistema.py carregado")
@@ -1343,6 +1365,10 @@ def executar_sistema_legado():
 
 def executar_sistema():
     """Abre as janelas do sistema original e/ou PLUS a partir do Flask."""
+    # No Render/servidor sem GUI: redirecionar direto para a interface web
+    # em vez de tentar abrir janelas Tkinter (que não existem).
+    if not ambiente_desktop_disponivel():
+        return redirect(url_for('sistema_dashboard'))
     try:
         # Executa o sistema Original primeiro quando não há target especificado
         if not request.args.get("target"):

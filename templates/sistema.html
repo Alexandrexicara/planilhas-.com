@@ -143,46 +143,46 @@
         <!-- Menu Grid -->
         <div class="menu-grid">
             <!-- Card 1: Importar Excel -->
-            <div class="menu-card">
+            <a href="/upload" class="menu-card" style="text-decoration: none;">
                 <i class="fas fa-file-excel"></i>
                 <h3>📊 Importar Excel</h3>
                 <p>Importar produtos de arquivo Excel com imagens</p>
-            </div>
+            </a>
 
-            <!-- Card 2: Gerenciar Produtos -->
-            <div class="menu-card">
+            <!-- Card 2: Catálogo de Produtos -->
+            <a href="/catalog" class="menu-card" style="text-decoration: none;">
                 <i class="fas fa-box"></i>
-                <h3>📦 Gerenciar Produtos</h3>
-                <p>Visualizar e editar produtos cadastrados</p>
-            </div>
+                <h3>📦 Catálogo de Produtos</h3>
+                <p>Visualizar produtos cadastrados da sua empresa</p>
+            </a>
 
-            <!-- Card 3: Extrair Imagens -->
-            <div class="menu-card">
+            <!-- Card 3: Gerenciar Imagens -->
+            <a href="/gerenciar-imagens" class="menu-card" style="text-decoration: none;">
                 <i class="fas fa-image"></i>
-                <h3>🖼️ Extrair Imagens</h3>
-                <p>Extrair imagens de arquivos Excel</p>
-            </div>
+                <h3>🖼️ Gerenciar Imagens</h3>
+                <p>Visualizar e organizar imagens importadas</p>
+            </a>
 
-            <!-- Card 4: Banco de Dados -->
-            <div class="menu-card">
-                <i class="fas fa-database"></i>
-                <h3>💾 Banco de Dados</h3>
-                <p>Gerenciar banco de dados de produtos</p>
-            </div>
+            <!-- Card 4: Colaboradores -->
+            <a href="/admin/colaboradores" class="menu-card" style="text-decoration: none;">
+                <i class="fas fa-users"></i>
+                <h3>👥 Colaboradores</h3>
+                <p>Convidar e gerenciar usuários da empresa</p>
+            </a>
 
-            <!-- Card 5: Relatórios -->
-            <div class="menu-card">
-                <i class="fas fa-chart-bar"></i>
-                <h3>📈 Relatórios</h3>
-                <p>Gerar relatórios de importações</p>
-            </div>
+            <!-- Card 5: Licença Desktop -->
+            <a href="/painel/licenca-desktop" class="menu-card" style="text-decoration: none;">
+                <i class="fas fa-key"></i>
+                <h3>🔑 Licença Desktop</h3>
+                <p>Gerar e gerenciar licença do .exe</p>
+            </a>
 
-            <!-- Card 6: Configurações -->
-            <div class="menu-card">
-                <i class="fas fa-cog"></i>
-                <h3>⚙️ Configurações</h3>
-                <p>Ajustar configurações do sistema</p>
-            </div>
+            <!-- Card 6: Upload de Imagens -->
+            <a href="/upload-imagens" class="menu-card" style="text-decoration: none;">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <h3>☁️ Upload de Imagens</h3>
+                <p>Subir imagens avulsas para o catálogo</p>
+            </a>
         </div>
 
         <!-- Status Box -->
@@ -281,11 +281,12 @@
             {% endif %}
         </div>
 
-        <!-- Botão Voltar -->
+        <!-- Botões de ação -->
         <div class="launch-actions">
             <a href="/admin/colaboradores" class="btn btn-outline-light">
                 Gerenciar colaboradores
             </a>
+            {% if resultado and resultado.ambiente_gui %}
             <a href="/executar-sistema?target=original" class="btn btn-primary">
                 Abrir sistema.py
             </a>
@@ -295,11 +296,13 @@
             <a href="/executar-sistema?target=both" class="btn btn-dark">
                 Abrir os dois
             </a>
+            {% endif %}
             <a href="/logout" class="btn btn-outline-light">
                 Sair
             </a>
         </div>
 
+        {% if resultado and resultado.ambiente_gui %}
         <div style="background: #eef6ff; padding: 14px; border-radius: 10px; margin-top: 16px; text-align: left;">
             <strong style="display:block; margin-bottom: 8px; color:#0b4f9c;">
                 Se o Planilhas_debug.exe nao abrir pela Area de Trabalho
@@ -316,6 +319,7 @@
                 Copiar comando
             </button>
         </div>
+        {% endif %}
 
         <div style="text-align: center;">
             <a href="/" class="btn btn-voltar">← Voltar para Landing Page</a>
