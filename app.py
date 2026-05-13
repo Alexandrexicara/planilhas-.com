@@ -45,19 +45,36 @@ print("=== IMPORTS BÁSICOS OK ===")
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///acesso_web.db'
 print("DATABASE_URL encontrado: False")
-# Usa PostgreSQL se DATABASE_URL existir (Render), senão SQLite local (fallback)
-from web_access_db_postgres import (
-    init_db as _init_access_db,
-    ensure_superadmin as _ensure_superadmin,
-    authenticate as _auth_user,
-    get_user as _get_user,
-    get_organization as _get_org,
-    organization_has_access as _org_has_access,
-    create_organization as _create_org,
-    create_user as _create_user,
-    create_invite as _create_invite,
-    redeem_invite as _redeem_invite,
-)
+# Usa PostgreSQL no Render (DATABASE_URL); SQLite local caso contrário.
+# Os dois módulos expõem a mesma API (init_db, ensure_superadmin, authenticate, ...).
+if os.environ.get('DATABASE_URL'):
+    print("[INIT] Usando web_access_db_postgres (PostgreSQL)")
+    from web_access_db_postgres import (
+        init_db as _init_access_db,
+        ensure_superadmin as _ensure_superadmin,
+        authenticate as _auth_user,
+        get_user as _get_user,
+        get_organization as _get_org,
+        organization_has_access as _org_has_access,
+        create_organization as _create_org,
+        create_user as _create_user,
+        create_invite as _create_invite,
+        redeem_invite as _redeem_invite,
+    )
+else:
+    print("[INIT] Usando web_access_db (SQLite local)")
+    from web_access_db import (
+        init_db as _init_access_db,
+        ensure_superadmin as _ensure_superadmin,
+        authenticate as _auth_user,
+        get_user as _get_user,
+        get_organization as _get_org,
+        organization_has_access as _org_has_access,
+        create_organization as _create_org,
+        create_user as _create_user,
+        create_invite as _create_invite,
+        redeem_invite as _redeem_invite,
+    )
 
 print("=== IMPORTS DE BANCO OK ===")
 

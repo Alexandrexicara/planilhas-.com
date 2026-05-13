@@ -3,8 +3,8 @@ Banco de dados PostgreSQL para acesso web - Versão Render
 Substitui o SQLite volátil por PostgreSQL persistente
 """
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
+# psycopg2 é importado de forma LAZY (só quando DATABASE_URL existir).
+# Localmente, sem DATABASE_URL, caímos no fallback SQLite e não precisamos do driver.
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
@@ -24,7 +24,9 @@ def connect():
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn
-    
+
+    # Import lazy do psycopg2 - só quando realmente vamos usar Postgres
+    import psycopg2  # noqa: F401
     conn = psycopg2.connect(db_url)
     conn.autocommit = True
     return conn
