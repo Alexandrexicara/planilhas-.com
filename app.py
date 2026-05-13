@@ -1250,16 +1250,23 @@ def abrir_janela_sistema(script_name, nome_exibicao):
     }
 
     if os.name == 'nt':
-        pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
-        # Usar python.exe em vez de pythonw.exe para ver logs no console
-        executable = sys.executable
-        # Nao usar CREATE_NEW_CONSOLE para manter logs no terminal atual
-        # creationflags = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
-        # if creationflags:
-        #     popen_kwargs['creationflags'] = creationflags
-        # Redirecionar stdout/stderr para ver logs
-        popen_kwargs['stdout'] = subprocess.PIPE
-        popen_kwargs['stderr'] = subprocess.STDOUT
+        # Em modo frozen (.exe --windowed), nao podemos capturar stdout/stderr
+        # porque o processo filho nao tem console. Isso causa erro 500.
+        if running_frozen:
+            executable = sys.executable
+            # Esconder janela de console do subprocess
+            creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            if creationflags:
+                popen_kwargs['creationflags'] = creationflags
+            # NAO redirecionar stdout/stderr quando rodando como exe windowed
+            popen_kwargs['stdout'] = subprocess.DEVNULL
+            popen_kwargs['stderr'] = subprocess.DEVNULL
+            popen_kwargs['stdin'] = subprocess.DEVNULL
+        else:
+            # Modo desenvolvimento (python.exe disponivel)
+            executable = sys.executable
+            popen_kwargs['stdout'] = subprocess.PIPE
+            popen_kwargs['stderr'] = subprocess.STDOUT
     else:
         executable = sys.executable
         popen_kwargs['start_new_session'] = True
@@ -1274,7 +1281,7 @@ def abrir_janela_sistema(script_name, nome_exibicao):
     print(f"[Flask] Abrindo: {' '.join(cmd)}")
     processo = subprocess.Popen(cmd, **popen_kwargs)
     
-    # Thread para ler e imprimir logs do sistema
+    # Thread para ler e imprimir logs do sistema (so quando NAO frozen)
     def ler_logs():
         try:
             if processo.stdout:
@@ -1284,7 +1291,8 @@ def abrir_janela_sistema(script_name, nome_exibicao):
         except Exception as e:
             print(f"[Flask] Erro ao ler logs: {e}")
     
-    threading.Thread(target=ler_logs, daemon=True).start()
+    if not running_frozen and processo.stdout is not None:
+        threading.Thread(target=ler_logs, daemon=True).start()
     
     time.sleep(0.6)
     if processo.poll() is not None:

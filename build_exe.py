@@ -19,7 +19,13 @@ def build_executable():
         "gerenciamento_usuarios",
         "sistema_online_offline",
         "banco_offline",
+        "web_access_db",
+        "web_access_db_postgres",
+        "desktop_license",
         "openpyxl",
+        "flask",
+        "jinja2",
+        "werkzeug",
         "zipfile",
         "sqlite3",
         "json",
@@ -34,9 +40,6 @@ def build_executable():
         "--onefile",
         "--windowed",
         "--name=Planilhas",
-        "--add-data=banco_plus.db;.",
-        "--add-data=banco.db;.",
-        "--add-data=usuarios.db;.",
         "--collect-all=openpyxl",
         "--distpath=dist",
         "--workpath=build",
@@ -46,13 +49,24 @@ def build_executable():
         "--noupx",
     ]
 
+    # Incluir bancos opcionais (so se existirem)
+    for db in ["banco_plus.db", "banco.db", "usuarios.db", "acesso_web.db"]:
+        if os.path.exists(db):
+            cmd.append(f"--add-data={db};.")
+
+    # Incluir templates e static (essenciais para Flask)
+    if os.path.exists("templates"):
+        cmd.append("--add-data=templates;templates")
+    if os.path.exists("static"):
+        cmd.append("--add-data=static;static")
+
     for hidden_import in hidden_imports:
         cmd.extend(["--hidden-import", hidden_import])
 
     if os.path.exists("icon.ico"):
         cmd.extend(["--icon", "icon.ico"])
 
-    cmd.append("menu_principal.py")
+    cmd.append("app.py")
 
     try:
         subprocess.run(cmd, capture_output=False, text=True, check=True)
