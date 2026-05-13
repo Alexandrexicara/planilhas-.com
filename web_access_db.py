@@ -341,11 +341,16 @@ def get_organization(org_id):
 
 
 def organization_has_access(org_id):
-    """Verifica se a organização tem acesso pago ao sistema."""
+    """Verifica se a organização tem acesso ao sistema.
+
+    [LIBERADO] Pagamento desativado temporariamente: basta a organização
+    existir para ter acesso. Para reativar exigência de pagamento,
+    restaurar a verificação `payment_status == 'paid'`.
+    """
     org = get_organization(org_id)
     if not org:
         return False
-    return org.get("payment_status") == "paid"
+    return True
 
 
 def set_organization_payment_pending(org_id, txid, qr_base64=None, pix_key=None):

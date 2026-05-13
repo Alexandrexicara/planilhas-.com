@@ -44,7 +44,7 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS users (
                         id SERIAL PRIMARY KEY,
                         email VARCHAR(255) UNIQUE NOT NULL,
-                        senha VARCHAR(255) NOT NULL,
+                        password_hash VARCHAR(255) NOT NULL,
                         nome VARCHAR(255),
                         role VARCHAR(50) DEFAULT 'user',
                         ativo INTEGER DEFAULT 1,
@@ -52,6 +52,16 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+
+                # Migração automática: se coluna 'senha' existir, renomear
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='users'
+                """)
+                cols = [r[0] for r in cur.fetchall()]
+                if 'senha' in cols and 'password_hash' not in cols:
+                    print("[MIGRAÇÃO] Renomeando 'senha' -> 'password_hash'")
+                    cur.execute("ALTER TABLE users RENAME COLUMN senha TO password_hash")
                 
                 # Tabela organizations
                 cur.execute("""
@@ -89,7 +99,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT UNIQUE NOT NULL,
-                    senha TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
                     nome TEXT,
                     role TEXT DEFAULT 'user',
                     ativo INTEGER DEFAULT 1,
@@ -145,7 +155,7 @@ def create_user(organization_id, nome, email, senha, role="collab", ativo=1):
             # PostgreSQL
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO users (organization_id, nome, email, senha, role, ativo, created_at)
+                    INSERT INTO users (organization_id, nome, email, password_hash, role, ativo, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (organization_id, nome.strip(), email.strip().lower(), password_hash, role, int(ativo), datetime.utcnow()))
@@ -155,7 +165,7 @@ def create_user(organization_id, nome, email, senha, role="collab", ativo=1):
             # SQLite
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO users (organization_id, nome, email, senha, role, ativo, created_at)
+                INSERT INTO users (organization_id, nome, email, password_hash, role, ativo, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (organization_id, nome.strip(), email.strip().lower(), password_hash, role, int(ativo), datetime.utcnow()))
             
@@ -197,7 +207,7 @@ def authenticate(email, senha):
             # PostgreSQL
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, organization_id, nome, email, senha, role, ativo
+                    SELECT id, organization_id, nome, email, password_hash, role, ativo
                     FROM users
                     WHERE email = %s
                 """, (email.strip().lower(),))
@@ -206,7 +216,7 @@ def authenticate(email, senha):
         else:
             # SQLite
             row = conn.execute("""
-                SELECT id, organization_id, nome, email, senha, role, ativo
+                SELECT id, organization_id, nome, email, password_hash, role, ativo
                 FROM users
                 WHERE email = ?
             """, (email.strip().lower(),)).fetchone()
@@ -222,10 +232,10 @@ def authenticate(email, senha):
             return None
 
         print(f"Verificando senha...")
-        print(f"Hash armazenado: {row['senha'][:50]}...")
+        print(f"Hash armazenado: {row['password_hash'][:50]}...")
         print(f"Senha fornecida: '{senha}'")
         
-        if not check_password_hash(row["senha"], senha):
+        if not check_password_hash(row["password_hash"], senha):
             print("❌ Senha incorreta")
             return None
 
@@ -259,7 +269,7 @@ def ensure_superadmin(email, senha):
                 # Atualizar existente
                 cur.execute("""
                     UPDATE users
-                    SET senha = %s, role = 'superadmin', ativo = 1
+                    SET password_hash = %s, role = 'superadmin', ativo = 1
                     WHERE id = %s
                 """, (password_hash, existing[0]))
                 print(f"Superadmin atualizado com ID: {existing[0]}")
@@ -267,7 +277,7 @@ def ensure_superadmin(email, senha):
             else:
                 # Criar novo
                 cur.execute("""
-                    INSERT INTO users (organization_id, nome, email, senha, role, ativo, created_at)
+                    INSERT INTO users (organization_id, nome, email, password_hash, role, ativo, created_at)
                     VALUES (NULL, 'Criador', %s, %s, 'superadmin', 1, %s)
                     RETURNING id
                 """, (email_norm, password_hash, datetime.utcnow()))
@@ -326,16 +336,19 @@ def get_organization(org_id):
         conn.close()
 
 def organization_has_access(org_id):
-    """Verifica se organização tem acesso"""
+    """Verifica se organização tem acesso.
+    
+    [LIBERADO] Pagamento desativado temporariamente: sempre retorna True
+    enquanto a organização existir. Para reativar exigência, restaurar a
+    consulta a payment_status == 'paid'.
+    """
+    if not org_id:
+        return False
     conn = connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT payment_status FROM organizations WHERE id = %s
-            """, (org_id,))
-            
-            result = cur.fetchone()
-            return result and result[0] == 'paid'
+            cur.execute("SELECT id FROM organizations WHERE id = %s", (org_id,))
+            return cur.fetchone() is not None
     finally:
         conn.close()
 

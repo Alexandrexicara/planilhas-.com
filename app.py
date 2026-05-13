@@ -45,7 +45,8 @@ print("=== IMPORTS BÁSICOS OK ===")
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///acesso_web.db'
 print("DATABASE_URL encontrado: False")
-from web_access_db import (
+# Usa PostgreSQL se DATABASE_URL existir (Render), senão SQLite local (fallback)
+from web_access_db_postgres import (
     init_db as _init_access_db,
     ensure_superadmin as _ensure_superadmin,
     authenticate as _auth_user,
@@ -155,7 +156,16 @@ try:
     _ensure_superadmin("superadmin@planilhas.com", "GpA1XmI86lGB309W")
     print("[INIT] Admins padrão garantidos: admin@planilhas.com / superadmin@planilhas.com")
 except Exception as _e:
-    print(f"[AVISO] Não foi possível criar admins padrão: {_e}")
+    print(f"[AVISO] Não foi possível criar admins padrões: {_e}")
+
+# Inicializar tabela de licenças desktop (anti-pirataria)
+try:
+    import desktop_license as _desktop_license
+    _desktop_license.init_license_table()
+    print("[INIT] Tabela desktop_licenses pronta")
+except Exception as _e:
+    print(f"[AVISO] Não foi possível inicializar desktop_licenses: {_e}")
+    _desktop_license = None
 
 # Pastas de runtime (serverless so pode escrever em /tmp)
 for runtime_path in [RUNTIME_DIR, UPLOAD_DIR, TEMP_IMAGES_DIR, STATIC_UPLOADS_DIR]:
@@ -277,7 +287,7 @@ def abrir_navegador_quando_pronto(url, host, port, timeout_segundos=12):
     threading.Thread(target=_abrir, daemon=True).start()
 
 def get_db_connection():
-    """Conexao com o banco de dados"""
+    """Conexao com o banco de dados (com isolamento multi-tenant)"""
     # Garantir que o banco existe no Render
     if IS_RENDER and not os.path.exists(DB_PATH):
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -285,6 +295,7 @@ def get_db_connection():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS produtos_plus (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER,
                 nome TEXT,
                 descricao TEXT,
                 preco REAL,
@@ -295,10 +306,43 @@ def get_db_connection():
         """)
         conn.commit()
         conn.close()
-    
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+
+    # Migração automática: adicionar organization_id se a coluna não existir
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(produtos_plus)").fetchall()]
+        if cols and 'organization_id' not in cols:
+            print("[MIGRAÇÃO] Adicionando coluna organization_id em produtos_plus")
+            conn.execute("ALTER TABLE produtos_plus ADD COLUMN organization_id INTEGER")
+            conn.commit()
+    except Exception as _e:
+        print(f"[AVISO] Migração organization_id falhou: {_e}")
+
     return conn
+
+
+def _user_org_id():
+    """Retorna o organization_id do usuário logado, ou None."""
+    user = _current_user()
+    if not user:
+        return None
+    return user.get("organization_id")
+
+
+def _filtro_org_sql(alias=""):
+    """Devolve (clausula_sql, params) para isolar dados pela organização do user.
+    Superadmin vê tudo. Usuários sem organização veem somente itens sem org.
+    """
+    user = _current_user()
+    pref = (alias + ".") if alias else ""
+    if _is_superadmin(user):
+        return "", []
+    org_id = _user_org_id()
+    if org_id is None:
+        return f"{pref}organization_id IS NULL", []
+    return f"({pref}organization_id = ? OR {pref}organization_id IS NULL)", [org_id]
 
 
 def _current_user():
@@ -1082,8 +1126,8 @@ def save_image_to_static(image_path):
     shutil.copy(image_path, new_path)
     return new_path if IS_VERCEL else f"/static/uploads/{filename}"
 
-def import_products_to_db(products_data):
-    """Importa produtos para o banco de dados"""
+def import_products_to_db(products_data, organization_id=None):
+    """Importa produtos para o banco de dados (vinculados à organização)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -1099,10 +1143,11 @@ def import_products_to_db(products_data):
             # Inserir no banco
             cursor.execute("""
                 INSERT INTO produtos_plus (
-                    cliente, arquivo_origem, codigo, descricao, peso, 
+                    organization_id, cliente, arquivo_origem, codigo, descricao, peso, 
                     picture, data_importacao
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                organization_id,
                 product.get('cliente', 'Web'),
                 'upload_web',
                 product.get('codigo', ''),
@@ -1427,8 +1472,9 @@ def upload_page():
     return render_template('upload.html', config=SISTEMA_CONFIG)
 
 @app.route('/api/upload', methods=['POST'])
+@_login_required
 def upload_excel():
-    """API para upload e processamento de Excel"""
+    """API para upload e processamento de Excel (isolado por organização)"""
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'Nenhum arquivo enviado'}), 400
@@ -1448,8 +1494,9 @@ def upload_excel():
         # Processar Excel
         products_data, images = read_excel_with_images(temp_path)
         
-        # Importar para banco
-        imported_count = import_products_to_db(products_data)
+        # Importar para banco vinculando à organização do usuário
+        org_id = _user_org_id()
+        imported_count = import_products_to_db(products_data, organization_id=org_id)
         
         # Limpar arquivo temporario
         os.remove(temp_path)
@@ -1466,30 +1513,40 @@ def upload_excel():
         return jsonify({'error': str(e)}), 500
 
 @app.route("/catalog")
+@_login_required
 def catalog():
-    """Catálogo de produtos do banco PLUS - Acesso Livre"""
+    """Catálogo de produtos do banco PLUS - Isolado por empresa"""
     conn = get_db_connection()
-    products = conn.execute("""
-        SELECT * FROM produtos_plus 
-        ORDER BY data_importacao DESC 
-        LIMIT 100
-    """).fetchall()
+    where_sql, params = _filtro_org_sql()
+    sql = "SELECT * FROM produtos_plus"
+    if where_sql:
+        sql += f" WHERE {where_sql}"
+    sql += " ORDER BY data_importacao DESC LIMIT 100"
+    products = conn.execute(sql, params).fetchall()
     conn.close()
     
     return render_template("catalog.html", products=products, config=SISTEMA_CONFIG)
 
 @app.route('/api/stats')
+@_login_required
 def get_stats():
-    """API de estatisticas"""
+    """API de estatisticas (isoladas por empresa)"""
     conn = get_db_connection()
-    
+    where_sql, params = _filtro_org_sql()
+    where_clause = f" WHERE {where_sql}" if where_sql else ""
+    where_and = (" AND " + where_sql) if where_sql else ""
+
     stats = {
-        'total_products': conn.execute("SELECT COUNT(*) FROM produtos_plus").fetchone()[0],
-        'total_clients': conn.execute("SELECT COUNT(DISTINCT cliente) FROM produtos_plus").fetchone()[0],
-        'recent_imports': conn.execute("""
-            SELECT COUNT(*) FROM produtos_plus 
-            WHERE data_importacao >= date('now', '-7 days')
-        """).fetchone()[0]
+        'total_products': conn.execute(
+            f"SELECT COUNT(*) FROM produtos_plus{where_clause}", params
+        ).fetchone()[0],
+        'total_clients': conn.execute(
+            f"SELECT COUNT(DISTINCT cliente) FROM produtos_plus{where_clause}", params
+        ).fetchone()[0],
+        'recent_imports': conn.execute(
+            f"SELECT COUNT(*) FROM produtos_plus WHERE data_importacao >= date('now', '-7 days'){where_and}",
+            params
+        ).fetchone()[0]
     }
     
     conn.close()
@@ -1759,6 +1816,125 @@ def gerenciar_imagens():
         imagens = listar_imagens(limit=100)
     
     return render_template('gerenciar_imagens.html', imagens=imagens, termo=termo)
+
+
+# ============================
+# LICENÇA DESKTOP (anti-pirataria)
+# ============================
+
+@app.route('/painel/licenca-desktop')
+@_login_required
+def painel_licenca_desktop():
+    """Painel admin: gerencia a única licença desktop da empresa."""
+    user = _current_user()
+    if not _is_admin_or_superadmin(user):
+        return "Apenas administradores podem gerenciar licença desktop.", 403
+    if _desktop_license is None:
+        return "Sistema de licença indisponível.", 503
+
+    org_id = _user_org_id()
+    if not org_id and not _is_superadmin(user):
+        return "Sua conta não está vinculada a uma empresa.", 400
+
+    lic = None
+    if org_id:
+        lic = _desktop_license.get_license_by_org(org_id)
+    return render_template('licenca_desktop.html', licenca=lic, user=user)
+
+
+@app.route('/api/licenca/gerar', methods=['POST'])
+@_login_required
+def api_licenca_gerar():
+    """Admin gera (ou recupera) o token único da empresa."""
+    user = _current_user()
+    if not _is_admin_or_superadmin(user):
+        return jsonify({"ok": False, "erro": "Sem permissão"}), 403
+    if _desktop_license is None:
+        return jsonify({"ok": False, "erro": "Indisponível"}), 503
+
+    org_id = _user_org_id()
+    if not org_id:
+        return jsonify({"ok": False, "erro": "Conta sem empresa"}), 400
+
+    try:
+        lic = _desktop_license.create_or_get_license(org_id)
+        return jsonify({"ok": True, "token": lic["token"],
+                        "ativada": bool(lic.get("hardware_id"))})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)}), 500
+
+
+@app.route('/api/licenca/baixar')
+@_login_required
+def api_licenca_baixar():
+    """Baixa um licenca.txt com o token (deve ficar ao lado do Planilhas.exe)."""
+    from flask import Response
+    user = _current_user()
+    if not _is_admin_or_superadmin(user):
+        return "Sem permissão", 403
+    if _desktop_license is None:
+        return "Indisponível", 503
+
+    org_id = _user_org_id()
+    if not org_id:
+        return "Conta sem empresa", 400
+
+    lic = _desktop_license.create_or_get_license(org_id)
+    server_url = request.host_url.rstrip('/')
+    conteudo = (
+        "# Licença Planilhas Desktop\n"
+        "# NÃO EDITE NEM COMPARTILHE ESTE ARQUIVO!\n"
+        "# Coloque-o na MESMA pasta do Planilhas.exe\n"
+        f"TOKEN={lic['token']}\n"
+        f"SERVER={server_url}\n"
+    )
+    return Response(
+        conteudo,
+        mimetype='text/plain',
+        headers={'Content-Disposition': 'attachment; filename=licenca.txt'}
+    )
+
+
+@app.route('/api/licenca/reset', methods=['POST'])
+@_login_required
+def api_licenca_reset():
+    """Admin libera ativação em outro PC (limpa hardware_id)."""
+    user = _current_user()
+    if not _is_admin_or_superadmin(user):
+        return jsonify({"ok": False, "erro": "Sem permissão"}), 403
+    if _desktop_license is None:
+        return jsonify({"ok": False, "erro": "Indisponível"}), 503
+
+    org_id = _user_org_id()
+    if not org_id:
+        return jsonify({"ok": False, "erro": "Conta sem empresa"}), 400
+
+    _desktop_license.reset_license(org_id)
+    return jsonify({"ok": True, "mensagem": "Licença liberada para novo PC"})
+
+
+@app.route('/api/licenca/ativar', methods=['POST'])
+def api_licenca_ativar():
+    """Endpoint público chamado pelo .exe na primeira execução."""
+    if _desktop_license is None:
+        return jsonify({"ok": False, "motivo": "Servidor indisponível"}), 503
+    data = request.get_json(silent=True) or {}
+    token = data.get('token')
+    hardware_id = data.get('hardware_id')
+    resultado = _desktop_license.activate_license(token, hardware_id)
+    return jsonify(resultado)
+
+
+@app.route('/api/licenca/verificar', methods=['POST'])
+def api_licenca_verificar():
+    """Endpoint público chamado pelo .exe a cada inicialização."""
+    if _desktop_license is None:
+        return jsonify({"ok": False, "motivo": "Servidor indisponível"}), 503
+    data = request.get_json(silent=True) or {}
+    token = data.get('token')
+    hardware_id = data.get('hardware_id')
+    resultado = _desktop_license.verify_license(token, hardware_id)
+    return jsonify(resultado)
 
 
 # ============================

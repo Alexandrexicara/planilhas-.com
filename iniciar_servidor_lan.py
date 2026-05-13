@@ -17,7 +17,142 @@ import time
 import threading
 import webbrowser
 import subprocess
+import json
+import urllib.request
+import urllib.error
 from pathlib import Path
+
+DEFAULT_SERVER = "https://planilhas-1.onrender.com"
+
+
+def _ler_licenca():
+    """Lê licenca.txt da pasta do exe. Retorna (token, server_url) ou (None, None)."""
+    arq = _pasta_do_exe() / "licenca.txt"
+    if not arq.exists():
+        return None, None
+    token = None
+    server = None
+    try:
+        for linha in arq.read_text(encoding="utf-8").splitlines():
+            linha = linha.strip()
+            if linha.startswith("#") or not linha:
+                continue
+            if linha.upper().startswith("TOKEN="):
+                token = linha.split("=", 1)[1].strip()
+            elif linha.upper().startswith("SERVER="):
+                server = linha.split("=", 1)[1].strip()
+    except Exception as e:
+        print(f"[AVISO] Erro lendo licenca.txt: {e}")
+    return token, (server or DEFAULT_SERVER)
+
+
+def _hardware_id():
+    """Gera ID único estavel deste PC (CPU+MAC+hostname+disco)."""
+    import hashlib
+    import platform
+    import uuid
+    partes = []
+    try:
+        partes.append(str(uuid.getnode()))
+    except Exception:
+        partes.append("nomac")
+    try:
+        partes.append(platform.node() or "noname")
+    except Exception:
+        partes.append("noname")
+    try:
+        partes.append(platform.machine() or "noarch")
+    except Exception:
+        partes.append("noarch")
+    try:
+        partes.append(platform.processor() or "nocpu")
+    except Exception:
+        partes.append("nocpu")
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["vol", "C:"], capture_output=True, text=True,
+                               timeout=3, shell=True)
+            partes.append(r.stdout.strip())
+    except Exception:
+        pass
+    return hashlib.sha256("|".join(partes).encode("utf-8")).hexdigest()
+
+
+def _post_json(url, payload, timeout=10):
+    """POST JSON simples sem dependencia externa."""
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _validar_licenca():
+    """Valida licenca antes de iniciar o servidor.
+    Retorna True se OK, False se bloqueado (encerra).
+    """
+    token, server = _ler_licenca()
+    if not token:
+        print("\n" + "!" * 64)
+        print(" LICENCA NAO ENCONTRADA ".center(64, "!"))
+        print("!" * 64)
+        print("\n  Falta o arquivo 'licenca.txt' na mesma pasta do Planilhas.exe.")
+        print("  Acesse o painel online > Licença Desktop e baixe o arquivo.")
+        print("  Coloque-o ao lado do Planilhas.exe e rode novamente.\n")
+        input("Pressione Enter para sair...")
+        return False
+
+    hw = _hardware_id()
+    print(f"[LICENCA] Verificando ativacao em {server} ...")
+
+    # Tenta verificar primeiro; se ainda nao ativada, ativa agora
+    try:
+        r = _post_json(
+            f"{server.rstrip('/')}/api/licenca/verificar",
+            {"token": token, "hardware_id": hw}
+        )
+    except Exception as e:
+        print(f"[AVISO] Sem internet ou servidor indisponivel: {e}")
+        print("        Continuando em modo offline (sera revalidado depois).")
+        return True  # tolerancia se sem internet
+
+    if r.get("ok"):
+        print("[LICENCA] OK - este PC esta autorizado.\n")
+        return True
+
+    motivo = (r.get("motivo") or "").lower()
+
+    # Tenta primeira ativacao
+    if "nao ativada" in motivo or "não ativada" in motivo:
+        print("[LICENCA] Primeira execucao. Ativando neste PC...")
+        try:
+            ar = _post_json(
+                f"{server.rstrip('/')}/api/licenca/ativar",
+                {"token": token, "hardware_id": hw}
+            )
+        except Exception as e:
+            print(f"[ERRO] Falha ao ativar: {e}")
+            input("Pressione Enter para sair...")
+            return False
+        if ar.get("ok"):
+            print("[LICENCA] Ativada com sucesso neste PC!\n")
+            return True
+        motivo = ar.get("motivo", "Falha na ativacao")
+
+    # Bloqueado
+    print("\n" + "!" * 64)
+    print(" LICENCA BLOQUEADA ".center(64, "!"))
+    print("!" * 64)
+    print(f"\n  Motivo: {motivo}")
+    print("\n  Possiveis causas:")
+    print("    - Voce esta usando o exe de outra empresa")
+    print("    - O exe ja foi ativado em outro PC")
+    print("    - O administrador precisa resetar a licenca no painel online\n")
+    input("Pressione Enter para sair...")
+    return False
 
 
 def _get_local_ip():
@@ -147,6 +282,10 @@ def _banner(ip_local, port, arquivos_link):
 
 
 def main():
+    # 0) VALIDA LICENÇA ANTES DE QUALQUER COISA (anti-pirataria)
+    if not _validar_licenca():
+        return
+
     # 1) Ativa modo LAN ANTES de importar o app.py
     os.environ["PLANILHAS_LAN"] = "1"
     os.environ.setdefault("PORT", "5000")

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Licença Desktop{% endblock %}
+{% block content %}
+<div style="max-width: 720px; margin: 30px auto; padding: 24px; background: #fff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); font-family: 'Segoe UI', sans-serif;">
+  <h1 style="color: #2c3e50; margin-top: 0;">🛡️ Licença do Aplicativo Desktop</h1>
+  <p style="color: #555; line-height: 1.6;">
+    Cada empresa tem direito a <strong>1 instalação</strong> do <code>Planilhas.exe</code> em um único computador.
+    O aplicativo trava no primeiro PC ativado para evitar pirataria.
+  </p>
+
+  <div id="status-box" style="margin: 20px 0; padding: 16px; border-radius: 8px; background: #f8f9fa; border-left: 4px solid #667eea;">
+    {% if licenca %}
+      {% if licenca.hardware_id %}
+        <p style="margin: 0;"><strong>Status:</strong>
+          <span style="color: #27ae60;">✅ Ativada</span> em um computador
+        </p>
+        <p style="margin: 8px 0 0 0; font-size: 13px; color: #777;">
+          Ativada em: {{ licenca.activated_at or '—' }}<br>
+          Última verificação: {{ licenca.last_check or '—' }}
+        </p>
+      {% else %}
+        <p style="margin: 0;"><strong>Status:</strong>
+          <span style="color: #f39c12;">⏳ Aguardando primeira ativação</span>
+        </p>
+      {% endif %}
+    {% else %}
+      <p style="margin: 0;"><strong>Status:</strong>
+        <span style="color: #888;">Nenhuma licença gerada ainda</span>
+      </p>
+    {% endif %}
+  </div>
+
+  <h2 style="color: #2c3e50; font-size: 18px;">Passo a passo</h2>
+  <ol style="color: #444; line-height: 1.8;">
+    <li>Clique em <strong>Gerar / Baixar Licença</strong> abaixo para receber o arquivo <code>licenca.txt</code></li>
+    <li>Baixe o <code>Planilhas.exe</code> (botão de download)</li>
+    <li>Coloque os <strong>dois arquivos na mesma pasta</strong> no PC desejado</li>
+    <li>Dê duplo clique no <code>Planilhas.exe</code> — ele será ativado automaticamente nesse PC</li>
+    <li>A partir daí, esse computador fica registrado. Outros PCs serão bloqueados.</li>
+  </ol>
+
+  <div style="display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap;">
+    <a href="/api/licenca/baixar" style="padding: 12px 22px; background: #667eea; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">
+      📄 Gerar / Baixar Licença
+    </a>
+    <button onclick="resetarLicenca()" style="padding: 12px 22px; background: #e67e22; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+      🔄 Liberar para outro PC
+    </button>
+    <a href="/" style="padding: 12px 22px; background: #95a5a6; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">
+      ← Voltar
+    </a>
+  </div>
+
+  <div style="margin-top: 28px; padding: 14px; background: #fff5f5; border-left: 4px solid #e74c3c; border-radius: 6px; font-size: 13px; color: #6b1818;">
+    <strong>⚠️ Atenção:</strong> Trocar de PC libera a licença, mas anula a instalação anterior.
+    Use somente quando for migrar para um novo computador.
+  </div>
+</div>
+
+<script>
+function resetarLicenca() {
+  if (!confirm('Tem certeza? Isso irá DESATIVAR a instalação atual e permitirá ativar em outro PC.')) return;
+  fetch('/api/licenca/reset', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        alert('✅ ' + d.mensagem + '\n\nAgora você pode rodar o Planilhas.exe em outro PC.');
+        location.reload();
+      } else {
+        alert('❌ ' + (d.erro || 'Erro ao resetar licença'));
+      }
+    })
+    .catch(e => alert('Erro: ' + e));
+}
+</script>
+{% endblock %}
