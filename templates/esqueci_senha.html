@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Esqueci minha senha - planilhas.com{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="text-center mb-5">
+                <h1 class="text-white mb-2">
+                    <i class="fas fa-feather"></i> planilhas.com
+                </h1>
+                <p class="text-white-50">Recuperação de senha</p>
+            </div>
+
+            <div class="card border-0 shadow-lg">
+                <div class="card-body p-5">
+                    <h3 class="card-title mb-3">
+                        <i class="fas fa-key text-primary"></i> Esqueci minha senha
+                    </h3>
+                    <p class="text-muted">Informe o email cadastrado. Enviaremos um link para você criar uma nova senha.</p>
+
+                    <div id="statusMessage" class="alert alert-dismissible fade" role="alert" style="display: none;">
+                        <span id="statusText"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <form id="forgotForm">
+                        <div class="mb-4">
+                            <label for="email" class="form-label">Email</label>
+                            <input
+                                type="email"
+                                class="form-control form-control-lg"
+                                id="email"
+                                name="email"
+                                placeholder="seu@email.com"
+                                required
+                            >
+                        </div>
+
+                        <button type="submit" class="btn btn-gradient w-100 btn-lg" id="btnEnviar">
+                            <i class="fas fa-paper-plane"></i> Enviar link de recuperação
+                        </button>
+                    </form>
+
+                    <div class="text-center mt-4">
+                        <a href="/comecar" class="text-decoration-none">
+                            <i class="fas fa-arrow-left"></i> Voltar ao login
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('forgotForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = document.getElementById('btnEnviar');
+    var original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+
+    var email = document.getElementById('email').value;
+    var formData = new FormData();
+    formData.append('email', email);
+
+    try {
+        var resp = await fetch('/esqueci-senha', { method: 'POST', body: formData });
+        var data = await resp.json();
+        var box = document.getElementById('statusMessage');
+        var txt = document.getElementById('statusText');
+        box.className = 'alert alert-dismissible fade show ' + (data.success ? 'alert-success' : 'alert-danger');
+        if (data.dev_link) {
+            txt.innerHTML = data.message + '<br><a href="' + data.dev_link + '" class="alert-link">' + data.dev_link + '</a>';
+        } else {
+            txt.textContent = data.message;
+        }
+        box.style.display = 'block';
+    } catch (err) {
+        alert('Erro: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
+</script>
+{% endblock %}

@@ -92,26 +92,36 @@
 
                         <div class="mb-3">
                             <label for="senhaReg" class="form-label">Senha</label>
-                            <input 
-                                type="password" 
-                                class="form-control form-control-lg" 
-                                id="senhaReg" 
-                                name="senha"
-                                placeholder="Mínimo 6 caracteres"
-                                required
-                            >
+                            <div class="input-group input-group-lg">
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    id="senhaReg" 
+                                    name="senha"
+                                    placeholder="Mínimo 6 caracteres"
+                                    required
+                                >
+                                <button class="btn btn-outline-secondary" type="button" id="toggleSenhaReg" tabindex="-1" aria-label="Mostrar/ocultar senha">
+                                    <i class="fas fa-eye" id="iconSenhaReg"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <div class="mb-4">
                             <label for="confirmaReg" class="form-label">Confirmar Senha</label>
-                            <input 
-                                type="password" 
-                                class="form-control form-control-lg" 
-                                id="confirmaReg" 
-                                name="senha2"
-                                placeholder="Confirme sua senha"
-                                required
-                            >
+                            <div class="input-group input-group-lg">
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    id="confirmaReg" 
+                                    name="senha2"
+                                    placeholder="Confirme sua senha"
+                                    required
+                                >
+                                <button class="btn btn-outline-secondary" type="button" id="toggleConfirmaReg" tabindex="-1" aria-label="Mostrar/ocultar senha">
+                                    <i class="fas fa-eye" id="iconConfirmaReg"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <button type="submit" class="btn btn-success w-100 btn-lg">
@@ -199,6 +209,27 @@ if (codigo && orgNomeWrap && cpfWrap && orgNome) {
         orgNome.required = !isColab;
     };
 }
+
+// Toggle visibilidade das senhas (olho)
+function _bindToggle(btnId, inputId, iconId) {
+    var btn = document.getElementById(btnId);
+    var input = document.getElementById(inputId);
+    var icon = document.getElementById(iconId);
+    if (!btn || !input || !icon) return;
+    btn.addEventListener('click', function() {
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    });
+}
+_bindToggle('toggleSenhaReg', 'senhaReg', 'iconSenhaReg');
+_bindToggle('toggleConfirmaReg', 'confirmaReg', 'iconConfirmaReg');
 
 console.log('=== REGISTRO SCRIPT CARREGADO ===');
 </script>

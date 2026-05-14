@@ -95,6 +95,19 @@ def init_db():
                         FOREIGN KEY (organization_id) REFERENCES organizations(id)
                     )
                 """)
+
+                # Tabela password_reset_tokens
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        token VARCHAR(255) UNIQUE NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP NOT NULL,
+                        used INTEGER DEFAULT 0,
+                        FOREIGN KEY (user_id) REFERENCES users(id)
+                    )
+                """)
         else:
             # SQLite fallback
             conn.execute("""
@@ -136,6 +149,18 @@ def init_db():
                     used_at TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (organization_id) REFERENCES organizations(id)
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token TEXT UNIQUE NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TEXT NOT NULL,
+                    used INTEGER DEFAULT 0,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             """)
             
@@ -461,5 +486,101 @@ def list_invites(org_id):
             return cur.fetchall()
     finally:
         conn.close()
+
+
+def create_password_reset_token(email, ttl_minutes=30):
+    """Gera token de reset e retorna (user_dict, token) ou None."""
+    import secrets
+    from datetime import timedelta
+    conn = connect()
+    try:
+        db_url = get_db_url()
+        is_postgres = bool(db_url)
+        token = secrets.token_urlsafe(32)
+        now = datetime.utcnow()
+        expires = now + timedelta(minutes=ttl_minutes)
+
+        if is_postgres:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, nome, email FROM users WHERE lower(email) = %s AND ativo = 1",
+                    (email.strip().lower(),),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                cur.execute(
+                    """
+                    INSERT INTO password_reset_tokens (user_id, token, created_at, expires_at, used)
+                    VALUES (%s, %s, %s, %s, 0)
+                    """,
+                    (row["id"], token, now, expires),
+                )
+                return ({"id": row["id"], "nome": row["nome"], "email": row["email"]}, token)
+        else:
+            cur = conn.execute(
+                "SELECT id, nome, email FROM users WHERE lower(email) = ? AND ativo = 1",
+                (email.strip().lower(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            conn.execute(
+                """
+                INSERT INTO password_reset_tokens (user_id, token, created_at, expires_at, used)
+                VALUES (?, ?, ?, ?, 0)
+                """,
+                (row["id"], token, now.strftime("%Y-%m-%d %H:%M:%S"), expires.strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+            return ({"id": row["id"], "nome": row["nome"], "email": row["email"]}, token)
+    finally:
+        conn.close()
+
+
+def consume_reset_token_and_update_password(token, nova_senha):
+    """Valida token, troca senha, marca como usado. Retorna True/False."""
+    conn = connect()
+    try:
+        db_url = get_db_url()
+        is_postgres = bool(db_url)
+        new_hash = generate_password_hash(nova_senha)
+        now = datetime.utcnow()
+
+        if is_postgres:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = %s",
+                    (token,),
+                )
+                row = cur.fetchone()
+                if not row or row["used"]:
+                    return False
+                if row["expires_at"] < now:
+                    return False
+                cur.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, row["user_id"]))
+                cur.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = %s", (token,))
+                return True
+        else:
+            cur = conn.execute(
+                "SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = ?",
+                (token,),
+            )
+            row = cur.fetchone()
+            if not row or row["used"]:
+                return False
+            try:
+                exp = datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return False
+            if datetime.utcnow() > exp:
+                return False
+            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["user_id"]))
+            conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (token,))
+            conn.commit()
+            return True
+    finally:
+        conn.close()
+
 
 print("Módulo PostgreSQL carregado com sucesso!")

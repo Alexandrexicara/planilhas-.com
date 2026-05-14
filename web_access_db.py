@@ -158,8 +158,102 @@ def init_db():
         """
     )
 
+    # Tabela para tokens de recuperacao de senha
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
+
+
+def create_password_reset_token(email, ttl_minutes=30):
+    """Gera um token de reset para o email informado. Retorna (user_dict, token) ou None."""
+    from datetime import timedelta
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT id, nome, email FROM users WHERE lower(email) = ? AND ativo = 1",
+            (email.strip().lower(),),
+        ).fetchone()
+        if not row:
+            return None
+        token = secrets.token_urlsafe(32)
+        now = datetime.utcnow()
+        expires = now + timedelta(minutes=ttl_minutes)
+        conn.execute(
+            """
+            INSERT INTO password_reset_tokens (user_id, token, created_at, expires_at, used)
+            VALUES (?, ?, ?, ?, 0)
+            """,
+            (row[0], token, now.strftime("%Y-%m-%d %H:%M:%S"), expires.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+        return ({"id": row[0], "nome": row[1], "email": row[2]}, token)
+    finally:
+        conn.close()
+
+
+def get_valid_reset_token(token):
+    """Retorna user_id do token valido (nao expirado, nao usado) ou None."""
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = ?",
+            (token,),
+        ).fetchone()
+        if not row:
+            return None
+        user_id, expires_at, used = row[0], row[1], row[2]
+        if used:
+            return None
+        try:
+            exp = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+        if datetime.utcnow() > exp:
+            return None
+        return user_id
+    finally:
+        conn.close()
+
+
+def consume_reset_token_and_update_password(token, nova_senha):
+    """Valida o token, troca a senha e marca token como usado. Retorna True ou False."""
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = ?",
+            (token,),
+        ).fetchone()
+        if not row:
+            return False
+        user_id, expires_at, used = row[0], row[1], row[2]
+        if used:
+            return False
+        try:
+            exp = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return False
+        if datetime.utcnow() > exp:
+            return False
+        new_hash = generate_password_hash(nova_senha)
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user_id))
+        conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (token,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 def any_organization_exists():

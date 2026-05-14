@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Redefinir senha - planilhas.com{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="text-center mb-5">
+                <h1 class="text-white mb-2">
+                    <i class="fas fa-feather"></i> planilhas.com
+                </h1>
+                <p class="text-white-50">Defina sua nova senha</p>
+            </div>
+
+            <div class="card border-0 shadow-lg">
+                <div class="card-body p-5">
+                    <h3 class="card-title mb-3">
+                        <i class="fas fa-lock text-primary"></i> Nova senha
+                    </h3>
+                    <p class="text-muted">Escolha uma nova senha segura (mínimo 6 caracteres).</p>
+
+                    <div id="statusMessage" class="alert alert-dismissible fade" role="alert" style="display: none;">
+                        <span id="statusText"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <form id="resetForm">
+                        <div class="mb-3">
+                            <label for="senha" class="form-label">Nova senha</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control form-control-lg" id="senha" name="senha" required minlength="6" placeholder="Nova senha">
+                                <button type="button" class="btn btn-outline-secondary" id="toggleSenha" tabindex="-1">
+                                    <i class="fas fa-eye" id="iconSenha"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="confirma" class="form-label">Confirme a senha</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control form-control-lg" id="confirma" name="confirma" required minlength="6" placeholder="Repita a senha">
+                                <button type="button" class="btn btn-outline-secondary" id="toggleConfirma" tabindex="-1">
+                                    <i class="fas fa-eye" id="iconConfirma"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-gradient w-100 btn-lg" id="btnSalvar">
+                            <i class="fas fa-check"></i> Salvar nova senha
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggle(btnId, inputId, iconId) {
+    document.getElementById(btnId).addEventListener('click', function() {
+        var input = document.getElementById(inputId);
+        var icon = document.getElementById(iconId);
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    });
+}
+toggle('toggleSenha', 'senha', 'iconSenha');
+toggle('toggleConfirma', 'confirma', 'iconConfirma');
+
+document.getElementById('resetForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = document.getElementById('btnSalvar');
+    var original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+    var formData = new FormData();
+    formData.append('senha', document.getElementById('senha').value);
+    formData.append('confirma', document.getElementById('confirma').value);
+
+    try {
+        var resp = await fetch('/redefinir-senha/{{ token }}', { method: 'POST', body: formData });
+        var data = await resp.json();
+        var box = document.getElementById('statusMessage');
+        var txt = document.getElementById('statusText');
+        box.className = 'alert alert-dismissible fade show ' + (data.success ? 'alert-success' : 'alert-danger');
+        txt.textContent = data.message;
+        box.style.display = 'block';
+        if (data.success && data.redirect) {
+            setTimeout(function() { window.location.href = data.redirect; }, 2000);
+        }
+    } catch (err) {
+        alert('Erro: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
+</script>
+{% endblock %}

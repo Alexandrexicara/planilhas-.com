@@ -60,6 +60,8 @@ if os.environ.get('DATABASE_URL'):
         create_user as _create_user,
         create_invite as _create_invite,
         redeem_invite as _redeem_invite,
+        create_password_reset_token as _create_reset_token,
+        consume_reset_token_and_update_password as _consume_reset_token,
     )
 else:
     print("[INIT] Usando web_access_db (SQLite local)")
@@ -74,6 +76,8 @@ else:
         create_user as _create_user,
         create_invite as _create_invite,
         redeem_invite as _redeem_invite,
+        create_password_reset_token as _create_reset_token,
+        consume_reset_token_and_update_password as _consume_reset_token,
     )
 
 print("=== IMPORTS DE BANCO OK ===")
@@ -795,9 +799,9 @@ def registro():
         except Exception:
             pass
 
-        print(f"Cadastro finalizado com sucesso! Redirecionando para pagamento...")
+        print(f"Cadastro finalizado com sucesso! Acesso liberado, redirecionando para o sistema...")
         return jsonify(
-            {"success": True, "message": "Cadastro realizado. Finalize o pagamento para liberar o acesso.", "redirect": url_for("pagamento")}
+            {"success": True, "message": "Cadastro realizado com sucesso! Bem-vindo(a).", "redirect": nxt or url_for("sistema_dashboard")}
         )
     except sqlite3.IntegrityError:
         print(f"ERRO: Email já cadastrado: {email}")
@@ -807,6 +811,150 @@ def registro():
         import traceback
         traceback.print_exc()
         return jsonify({"success": False, "message": f"Erro ao registrar: {str(e)}"})
+
+
+# ==================================================================
+# Recuperacao de senha (esqueci minha senha)
+# ==================================================================
+
+def _send_reset_email(destinatario, nome, link_reset):
+    """Envia email de recuperacao de senha via SMTP.
+    Le credenciais das variaveis de ambiente:
+      SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_USE_TLS
+    Retorna (sucesso, mensagem_erro).
+    """
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    host = os.environ.get("SMTP_HOST", "").strip()
+    port_str = os.environ.get("SMTP_PORT", "587").strip()
+    user = os.environ.get("SMTP_USER", "").strip()
+    password = os.environ.get("SMTP_PASSWORD", "")
+    from_addr = os.environ.get("SMTP_FROM", user).strip()
+    use_tls = os.environ.get("SMTP_USE_TLS", "1").strip() not in ("0", "false", "False", "")
+
+    if not host or not user or not password:
+        return False, "SMTP nao configurado (defina SMTP_HOST, SMTP_USER, SMTP_PASSWORD nas variaveis de ambiente)."
+
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 587
+
+    assunto = "Recuperacao de senha - planilhas.com"
+    corpo_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #5e35b1;">Recuperacao de senha</h2>
+        <p>Ola <strong>{nome or destinatario}</strong>,</p>
+        <p>Voce solicitou a recuperacao de senha da sua conta no <strong>planilhas.com</strong>.</p>
+        <p>Clique no botao abaixo para criar uma nova senha:</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="{link_reset}" style="background: #5e35b1; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">Redefinir minha senha</a>
+        </p>
+        <p>Ou copie e cole o link abaixo no navegador:</p>
+        <p style="word-break: break-all; color: #666; font-size: 12px;">{link_reset}</p>
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        <p style="color: #999; font-size: 12px;">
+            Este link expira em 30 minutos. Se voce nao solicitou, ignore este email.
+        </p>
+    </div>
+    """
+    corpo_texto = f"Recuperacao de senha - planilhas.com\n\nAcesse: {link_reset}\n\nLink valido por 30 minutos."
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = assunto
+    msg["From"] = from_addr
+    msg["To"] = destinatario
+    msg.attach(MIMEText(corpo_texto, "plain", "utf-8"))
+    msg.attach(MIMEText(corpo_html, "html", "utf-8"))
+
+    try:
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=15) as server:
+                server.login(user, password)
+                server.sendmail(from_addr, [destinatario], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as server:
+                server.ehlo()
+                if use_tls:
+                    server.starttls()
+                    server.ehlo()
+                server.login(user, password)
+                server.sendmail(from_addr, [destinatario], msg.as_string())
+        return True, "ok"
+    except Exception as e:
+        print(f"[SMTP] Falha ao enviar email: {e}")
+        import traceback; traceback.print_exc()
+        return False, str(e)
+
+
+@app.route("/esqueci-senha", methods=["GET"])
+def esqueci_senha_page():
+    """Pagina para solicitar recuperacao de senha."""
+    return render_template("esqueci_senha.html")
+
+
+@app.route("/esqueci-senha", methods=["POST"])
+def esqueci_senha_submit():
+    """Recebe email e envia link de reset."""
+    email = (request.form.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"success": False, "message": "Informe um email valido."})
+
+    try:
+        result = _create_reset_token(email, ttl_minutes=30)
+    except Exception as e:
+        print(f"[ESQUECI-SENHA] Erro ao gerar token: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"success": False, "message": "Erro ao processar solicitacao."})
+
+    # Resposta identica mesmo se o email nao existir (nao vazar quais emails sao validos)
+    generic_msg = "Se o email estiver cadastrado, voce recebera um link de recuperacao em alguns instantes."
+
+    if not result:
+        return jsonify({"success": True, "message": generic_msg})
+
+    user, token = result
+    link = url_for("redefinir_senha_page", token=token, _external=True)
+    ok, err = _send_reset_email(user["email"], user.get("nome") or "", link)
+    if not ok:
+        # Em desenvolvimento: se SMTP nao configurado, retornar o link para facilitar testes locais
+        if not os.environ.get("SMTP_HOST"):
+            return jsonify({
+                "success": True,
+                "message": "SMTP nao configurado. Use o link abaixo (apenas em desenvolvimento):",
+                "dev_link": link,
+            })
+        return jsonify({"success": False, "message": f"Nao foi possivel enviar email: {err}"})
+
+    return jsonify({"success": True, "message": generic_msg})
+
+
+@app.route("/redefinir-senha/<token>", methods=["GET"])
+def redefinir_senha_page(token):
+    """Pagina com formulario para definir nova senha."""
+    return render_template("redefinir_senha.html", token=token)
+
+
+@app.route("/redefinir-senha/<token>", methods=["POST"])
+def redefinir_senha_submit(token):
+    """Aplica a nova senha usando o token."""
+    nova = request.form.get("senha") or ""
+    conf = request.form.get("confirma") or ""
+    if len(nova) < 6:
+        return jsonify({"success": False, "message": "A senha deve ter pelo menos 6 caracteres."})
+    if nova != conf:
+        return jsonify({"success": False, "message": "As senhas nao conferem."})
+    try:
+        ok = _consume_reset_token(token, nova)
+    except Exception as e:
+        print(f"[REDEFINIR-SENHA] Erro: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"success": False, "message": "Erro ao redefinir senha."})
+    if not ok:
+        return jsonify({"success": False, "message": "Link invalido ou expirado. Solicite uma nova recuperacao."})
+    return jsonify({"success": True, "message": "Senha redefinida com sucesso!", "redirect": url_for("comecar")})
 
 
 @app.route("/pagamento")
@@ -1250,23 +1398,16 @@ def abrir_janela_sistema(script_name, nome_exibicao):
     }
 
     if os.name == 'nt':
-        # Em modo frozen (.exe --windowed), nao podemos capturar stdout/stderr
-        # porque o processo filho nao tem console. Isso causa erro 500.
-        if running_frozen:
-            executable = sys.executable
-            # Esconder janela de console do subprocess
-            creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            if creationflags:
-                popen_kwargs['creationflags'] = creationflags
-            # NAO redirecionar stdout/stderr quando rodando como exe windowed
-            popen_kwargs['stdout'] = subprocess.DEVNULL
-            popen_kwargs['stderr'] = subprocess.DEVNULL
-            popen_kwargs['stdin'] = subprocess.DEVNULL
-        else:
-            # Modo desenvolvimento (python.exe disponivel)
-            executable = sys.executable
-            popen_kwargs['stdout'] = subprocess.PIPE
-            popen_kwargs['stderr'] = subprocess.STDOUT
+        pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+        # Usar python.exe em vez de pythonw.exe para ver logs no console
+        executable = sys.executable
+        # Nao usar CREATE_NEW_CONSOLE para manter logs no terminal atual
+        # creationflags = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
+        # if creationflags:
+        #     popen_kwargs['creationflags'] = creationflags
+        # Redirecionar stdout/stderr para ver logs
+        popen_kwargs['stdout'] = subprocess.PIPE
+        popen_kwargs['stderr'] = subprocess.STDOUT
     else:
         executable = sys.executable
         popen_kwargs['start_new_session'] = True
@@ -1281,7 +1422,7 @@ def abrir_janela_sistema(script_name, nome_exibicao):
     print(f"[Flask] Abrindo: {' '.join(cmd)}")
     processo = subprocess.Popen(cmd, **popen_kwargs)
     
-    # Thread para ler e imprimir logs do sistema (so quando NAO frozen)
+    # Thread para ler e imprimir logs do sistema
     def ler_logs():
         try:
             if processo.stdout:
@@ -1291,8 +1432,7 @@ def abrir_janela_sistema(script_name, nome_exibicao):
         except Exception as e:
             print(f"[Flask] Erro ao ler logs: {e}")
     
-    if not running_frozen and processo.stdout is not None:
-        threading.Thread(target=ler_logs, daemon=True).start()
+    threading.Thread(target=ler_logs, daemon=True).start()
     
     time.sleep(0.6)
     if processo.poll() is not None:

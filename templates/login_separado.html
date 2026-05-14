@@ -41,16 +41,26 @@
                             >
                         </div>
 
-                        <div class="mb-4">
+                        <div class="mb-2">
                             <label for="senhaLogin" class="form-label">Senha</label>
-                            <input 
-                                type="password" 
-                                class="form-control form-control-lg" 
-                                id="senhaLogin" 
-                                name="senha"
-                                placeholder="Digite sua senha"
-                                required
-                            >
+                            <div class="input-group">
+                                <input 
+                                    type="password" 
+                                    class="form-control form-control-lg" 
+                                    id="senhaLogin" 
+                                    name="senha"
+                                    placeholder="Digite sua senha"
+                                    required
+                                >
+                                <button type="button" class="btn btn-outline-secondary" id="toggleSenha" tabindex="-1" title="Mostrar/Ocultar senha">
+                                    <i class="fas fa-eye" id="iconSenha"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mb-4 text-end">
+                            <a href="/esqueci-senha" class="text-decoration-none small">
+                                <i class="fas fa-key"></i> Esqueci minha senha
+                            </a>
                         </div>
                         <input type="hidden" name="next" value="{{ next|default('') }}">
 
@@ -78,6 +88,24 @@
 {% block scripts %}
 <script>
 console.log('=== LOGIN PAGE SCRIPT ===');
+
+// Toggle visibilidade da senha
+var toggleSenha = document.getElementById('toggleSenha');
+if (toggleSenha) {
+    toggleSenha.addEventListener('click', function() {
+        var input = document.getElementById('senhaLogin');
+        var icon = document.getElementById('iconSenha');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    });
+}
 
 // Login Form
 var loginForm = document.getElementById('loginForm');
