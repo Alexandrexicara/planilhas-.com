@@ -155,13 +155,21 @@ function copiarCodigo() {
 document.getElementById('inviteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const resp = await fetch('/admin/convites', { method: 'POST', body: formData });
-    const data = await resp.json();
-    if (!data.success) {
-        alert(data.message || 'Erro ao gerar convite');
-        return;
+    try {
+        const resp = await fetch('/admin/convites', { method: 'POST', body: formData });
+        let data = null;
+        try { data = await resp.json(); } catch(_) { data = null; }
+        if (!resp.ok || !data || !data.success) {
+            const msg = (data && data.message) ? data.message : ('HTTP ' + resp.status + ' ao gerar convite');
+            alert(msg);
+            console.error('[CONVITES] Falha:', resp.status, data);
+            return;
+        }
+        document.getElementById('inviteCode').textContent = data.code;
+    } catch (err) {
+        console.error('[CONVITES] Erro de rede:', err);
+        alert('Erro de rede ao gerar convite: ' + err.message);
     }
-    document.getElementById('inviteCode').textContent = data.code;
 });
 </script>
 {% endblock %}

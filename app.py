@@ -1170,13 +1170,29 @@ def redirect_convite_curto(short_code):
 def admin_criar_convite():
     user = _current_user()
     org_id = user.get("organization_id")
+    print(f"[ADMIN/CONVITES] user_id={user.get('id')} email={user.get('email')} role={user.get('role')} org_id={org_id}")
     if not org_id:
-        return jsonify({"success": False, "message": "Organização não encontrada"}), 400
+        # Diagnostico: quem chegou aqui sem org normalmente e superadmin (sem empresa)
+        if _is_superadmin(user):
+            return jsonify({
+                "success": False,
+                "message": "Voce esta logado como SUPERADMIN (nao pertence a nenhuma empresa). Faca login com a conta dona da empresa para criar convites."
+            }), 400
+        return jsonify({
+            "success": False,
+            "message": "Sua conta nao esta vinculada a nenhuma empresa. Refaca o cadastro informando o 'Nome da Empresa'."
+        }), 400
     role = (request.form.get("role") or "collab").strip().lower()
     email = (request.form.get("email") or "").strip()
     if role not in ("admin", "collab"):
         role = "collab"
-    code = _create_invite(org_id, role=role, email=email or None)
+    try:
+        code = _create_invite(org_id, role=role, email=email or None)
+    except Exception as e:
+        print(f"[ADMIN/CONVITES] Erro ao criar convite: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"Erro ao criar convite: {e}"}), 500
     
     # Gerar link completo
     base_url = request.url_root.rstrip('/')
