@@ -1493,6 +1493,65 @@ def download_exe_get():
         405
     )
 
+
+@app.route('/download-pacote', methods=['GET', 'POST'])
+def download_pacote():
+    """Entrega um ZIP com Planilhas.exe + Gerar_Link.exe + LEIA-ME.txt.
+
+    O Gerar_Link.exe deve ficar AO LADO do Planilhas.exe. Quando o usuario
+    da duplo clique nele, gera o Link.txt com o IP atual da rede WiFi para
+    compartilhar com a equipe.
+    """
+    import io
+    import zipfile
+
+    exe = get_latest_desktop_exe()
+    if not exe:
+        return ("Planilhas.exe ainda nao foi publicado em releases/", 404)
+
+    # Procura Gerar_Link.exe nas mesmas pastas
+    gerar_link_path = None
+    for base_dir in DESKTOP_RELEASES_DIRS:
+        candidato = os.path.join(base_dir, 'Gerar_Link.exe')
+        if os.path.isfile(candidato):
+            gerar_link_path = candidato
+            break
+
+    leia_me = (
+        "=== PACOTE PLANILHAS.COM - INSTRUCOES ===\n\n"
+        "Este pacote contem 2 arquivos:\n\n"
+        "  1) Planilhas.exe   - O servidor (rode neste PC, mantenha aberto)\n"
+        "  2) Gerar_Link.exe  - Gera o link compartilhavel para a equipe\n\n"
+        "COMO USAR:\n\n"
+        "  1. Coloque os 2 arquivos na MESMA pasta (ex: Desktop\\Planilhas)\n"
+        "  2. Coloque tambem o licenca.txt baixado do painel ao lado deles\n"
+        "  3. Da DUPLO CLIQUE em Planilhas.exe (mantem aberto)\n"
+        "  4. Da DUPLO CLIQUE em Gerar_Link.exe -> ele cria Link.txt com o\n"
+        "     endereco http://SEU-IP:5000/...\n"
+        "  5. Envie o link no WhatsApp da equipe (ja vai copiado para colar)\n\n"
+        "DICA: Se o WiFi mudar (trocou de rede / reiniciou roteador),\n"
+        "basta rodar o Gerar_Link.exe de novo que o Link.txt e atualizado.\n\n"
+        "CREDENCIAIS PADRAO PARA O PRIMEIRO LOGIN:\n"
+        "  Email: admin@planilhas.com\n"
+        "  Senha: admin123\n"
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(exe['path'], arcname='Planilhas.exe')
+        if gerar_link_path:
+            zf.write(gerar_link_path, arcname='Gerar_Link.exe')
+        zf.writestr('LEIA-ME.txt', leia_me)
+    buf.seek(0)
+
+    nome_zip = 'planilhas_pacote.zip'
+    return send_file(
+        buf,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=nome_zip,
+    )
+
 @app.route('/executar-sistema-legado')
 def executar_sistema_legado():
     """Executa funcoes dos modulos dentro do mesmo processo Flask."""
