@@ -393,41 +393,62 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
             # Calcular TOTAL CTNS (ex: INNER_QTY / MASTER_QTY ou usar total_ctns direto)
             # Por enquanto mantém o valor da planilha se existir
             
-            # Calcular TOTAL NET WEIGHT (kg) = NET_WEIGHT_PC × QUANTITY
-            tem_nw = dados.get('net_weight_pc') and str(dados.get('net_weight_pc')).strip()
-            
+            # TOTAL NET WEIGHT: Usar valor da planilha se existir, senão calcular
+            # Mesmo comportamento do TOTAL GROSS WEIGHT
+            # ATENÇÃO: no sistema_plus, a coluna Excel 'TOTAL NET WEIGHT( kg )' mapeia como 'peso'
+            net_weight_excel = dados.get('peso') and str(dados.get('peso')).strip()
+            tem_nw_pc = dados.get('net_weight_pc') and str(dados.get('net_weight_pc')).strip()
+
             if total_importados < 5:
-                print(f"[DEBUG PLUS] net_weight_pc={tem_nw}, net_weight_antes={dados.get('net_weight')}")
-            
-            if tem_qty and tem_nw:
+                print(f"[DEBUG PLUS] net_weight_excel(peso)='{net_weight_excel}', net_weight_pc='{tem_nw_pc}'")
+
+            # 1) Se já tem valor na planilha (não-zero), usar ele
+            if net_weight_excel and net_weight_excel not in ['', '0', '0,00', '0.00', '0.0', '.']:
+                try:
+                    def parse_br_nw(valor):
+                        if not valor:
+                            return 0.0
+                        if isinstance(valor, (int, float)):
+                            return float(valor)
+                        valor_str = str(valor).strip()
+                        if ',' in valor_str:
+                            valor_str = valor_str.replace('.', '').replace(',', '.')
+                        return float(valor_str)
+                    val_num = parse_br_nw(net_weight_excel)
+                    if val_num == int(val_num):
+                        dados['peso'] = f"{int(val_num)},00"
+                    else:
+                        dados['peso'] = f"{val_num:.2f}".replace('.', ',')
+                    print(f"[OK PLUS] TOTAL NET WEIGHT importado da planilha: {dados['peso']}")
+                except Exception as e:
+                    print(f"[ERRO PLUS] Erro ao formatar TOTAL NET WEIGHT: {e}")
+            # 2) Se não tem total mas tem NET WEIGHT/PC, calcular
+            elif tem_qty and tem_nw_pc:
                 try:
                     def parse_br(valor):
                         if not valor:
                             return 0.0
-                        # Se já é número, retorna direto
                         if isinstance(valor, (int, float)):
                             return float(valor)
                         valor_str = str(valor).strip()
-                        # Só converte se tiver vírgula (formato brasileiro)
                         if ',' in valor_str:
                             valor_str = valor_str.replace('.', '').replace(',', '.')
                         return float(valor_str)
-                    
+
                     net_weight_pc = parse_br(dados['net_weight_pc'])
                     quantity = parse_br(dados['quantity'])
-                    # Calcular TOTAL NET (já em kg)
                     total_net = net_weight_pc * quantity
-                    
+
                     if total_net == int(total_net):
                         dados['peso'] = f"{int(total_net)},00"
                     else:
                         dados['peso'] = f"{total_net:.2f}".replace('.', ',')
-                    
-                    print(f"[OK] TOTAL NET WEIGHT calculado: {dados['net_weight_pc']} × {dados['quantity']} = {dados['peso']}")
+
+                    print(f"[OK PLUS] TOTAL NET WEIGHT calculado: {dados['net_weight_pc']} × {dados['quantity']} = {dados['peso']}")
                 except Exception as e:
-                    print(f"[ERRO] Erro no calculo TOTAL NET WEIGHT: {e}")
+                    print(f"[ERRO PLUS] Erro no calculo TOTAL NET WEIGHT: {e}")
             elif total_importados < 5:
-                print(f"[PULOU] TOTAL NET WEIGHT - qty={tem_qty}, nw={tem_nw}")
+                print(f"[PULOU PLUS] TOTAL NET WEIGHT - sem valor na planilha e sem dados para calcular")
             
             # TOTAL GROSS WEIGHT: Usar valor da planilha se existir, senão calcular
             total_gross_excel = dados.get('gross_weight') and str(dados.get('gross_weight')).strip()
@@ -487,50 +508,62 @@ def importar_planilha_plus(caminho_arquivo, cliente=None, progress_callback=None
             elif total_importados < 5:
                 print(f"[PULOU] TOTAL GROSS WEIGHT - sem valor na planilha e sem dados para calcular")
             
-            # Calcular TOTAL CBM = (LENGTH × WIDTH × HEIGHT × TOTAL CTNS) / 1.000.000
-            # Convertendo mm³ para m³ (dividir por 1.000.000.000) e multiplicando por CTNS
-            # Ou se já estiver em metros: (m × m × m) × CTNS
+            # TOTAL CBM: Usar valor da planilha se existir, senão calcular
+            # Mesmo comportamento do TOTAL GROSS WEIGHT
+            cbm_excel = dados.get('cbm')
+            tem_cbm = cbm_excel and str(cbm_excel).strip() and str(cbm_excel).strip() not in ['', '0', '0,00', '0.00', '0.0', '.', '0,0000']
+
             tem_length = dados.get('length') and str(dados.get('length')).strip()
             tem_width = dados.get('width') and str(dados.get('width')).strip()
             tem_height = dados.get('height') and str(dados.get('height')).strip()
             tem_ctns = dados.get('total_ctns') and str(dados.get('total_ctns')).strip()
-            
+
             if total_importados < 5:
-                print(f"[DEBUG PLUS] length={tem_length}, width={tem_width}, height={tem_height}, ctns={tem_ctns}, cbm_antes={dados.get('cbm')}")
-            
-            if tem_length and tem_width and tem_height and tem_ctns:
+                print(f"[DEBUG PLUS] cbm_antes='{cbm_excel}', dims={'OK' if (tem_length and tem_width and tem_height) else 'FALTA'}, ctns={'OK' if tem_ctns else 'FALTA'}")
+
+            # 1) Se já tem valor na planilha (não-zero), usar ele
+            if tem_cbm:
+                try:
+                    def parse_br_cbm(valor):
+                        if not valor:
+                            return 0.0
+                        if isinstance(valor, (int, float)):
+                            return float(valor)
+                        valor_str = str(valor).strip()
+                        if ',' in valor_str:
+                            valor_str = valor_str.replace('.', '').replace(',', '.')
+                        return float(valor_str)
+                    val_num = parse_br_cbm(cbm_excel)
+                    dados['cbm'] = f"{val_num:.4f}".replace('.', ',')
+                    print(f"[OK PLUS] TOTAL CBM importado da planilha: {dados['cbm']}")
+                except Exception as e:
+                    print(f"[ERRO PLUS] Erro ao formatar TOTAL CBM: {e}")
+            # 2) Se não tem total mas tem dimensoes, calcular
+            elif tem_length and tem_width and tem_height and tem_ctns:
                 try:
                     def parse_br(valor):
                         if not valor:
                             return 0.0
-                        # Se já é número, retorna direto
                         if isinstance(valor, (int, float)):
                             return float(valor)
                         valor_str = str(valor).strip()
-                        # Só converte se tiver vírgula (formato brasileiro)
                         if ',' in valor_str:
                             valor_str = valor_str.replace('.', '').replace(',', '.')
                         return float(valor_str)
-                    
+
                     length = parse_br(dados['length'])
                     width = parse_br(dados['width'])
                     height = parse_br(dados['height'])
                     ctns = parse_br(dados['total_ctns'])
-                    
-                    # CBM = (L × W × H) / 1.000.000.000 (mm³ → m³) × CTNS
-                    # Ou assumir que já está em metros: L × W × H × CTNS
+
                     cbm = (length * width * height * ctns) / 1000000000
-                    
-                    if cbm == int(cbm):
-                        dados['cbm'] = f"{int(cbm)},00"
-                    else:
-                        dados['cbm'] = f"{cbm:.4f}".replace('.', ',')
-                    
-                    print(f"[OK] TOTAL CBM calculado: ({length} x {width} x {height} x {ctns}) / 1000000000 = {dados['cbm']}")
+                    dados['cbm'] = f"{cbm:.4f}".replace('.', ',')
+
+                    print(f"[OK PLUS] TOTAL CBM calculado: ({length} x {width} x {height} x {ctns}) / 1000000000 = {dados['cbm']}")
                 except Exception as e:
-                    print(f"[ERRO] Erro no calculo TOTAL CBM: {e}")
+                    print(f"[ERRO PLUS] Erro no calculo TOTAL CBM: {e}")
             elif total_importados < 5:
-                print(f"[PULOU] TOTAL CBM - dados insuficientes")
+                print(f"[PULOU PLUS] TOTAL CBM - sem valor na planilha e sem dados para calcular")
             
             # Adicionar campos fixos
             dados['cliente'] = cliente

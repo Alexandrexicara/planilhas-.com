@@ -608,30 +608,63 @@ def importar_planilha(caminho_arquivo, cliente=None, progress_callback=None):
             elif total_importados < 5:
                 print(f"[PULOU] TOTAL AMOUNT - qty={valores.get('QUANTITY')}, price={valores.get('UNIT PRICE UMO')}")
             
-            # Calcular TOTAL NET WEIGHT (kg) = NET WEIGHT / PC( g ) × QUANTITY
-            # Nome correto da coluna: 'NET WEIGHT / PC( g )'
-            net_weight_val = valores.get('NET WEIGHT / PC( g )') or valores.get('NET WEIGHT PC')
-            tem_nw = net_weight_val and str(net_weight_val).strip()
-            
+            # TOTAL NET WEIGHT: Usar valor da planilha se existir, senão calcular
+            # Mesmo comportamento do TOTAL GROSS WEIGHT
+            total_net_excel = None
+            for chave in ['TOTAL NET WEIGHT( kg )', 'TOTAL_NET_WEIGHT__kg_', 'TOTAL NET WEIGHT( KG )', 'total_net_weight']:
+                if valores.get(chave):
+                    total_net_excel = str(valores.get(chave)).strip()
+                    if total_importados < 5:
+                        print(f"[DEBUG] TOTAL NET encontrado na chave '{chave}': '{total_net_excel}'")
+                    break
+
+            # Também tentar várias chaves para NET WEIGHT per-piece
+            net_weight_pc_val = None
+            for chave in ['NET WEIGHT / PC( g )', 'NET WEIGHT PC', 'NET_WEIGHT__PC__g_', 'net_weight_pc']:
+                if valores.get(chave):
+                    net_weight_pc_val = valores.get(chave)
+                    break
+
+            tem_nw_pc = net_weight_pc_val and str(net_weight_pc_val).strip()
+
             if total_importados < 5:
-                print(f"NET WEIGHT valor: '{net_weight_val}' (tem={tem_nw})")
-            
-            if tem_qty and tem_nw:
+                print(f"[DEBUG] TOTAL NET excel='{total_net_excel}', net_pc='{net_weight_pc_val}'")
+
+            # Detectar qual chave usar para salvar (a que existe no dicionário)
+            chave_net = None
+            for chave in ['TOTAL NET WEIGHT( kg )', 'TOTAL_NET_WEIGHT__kg_', 'TOTAL NET WEIGHT( KG )']:
+                if chave in valores:
+                    chave_net = chave
+                    break
+            if not chave_net:
+                chave_net = 'TOTAL NET WEIGHT( kg )'  # fallback
+
+            # 1) Se já tem valor total na planilha (não-zero), usar ele
+            if total_net_excel and total_net_excel not in ['', '0', '0,00', '0.00', '0.0', '.']:
                 try:
-                    net_weight_pc = parse_br(net_weight_val)
+                    val_num = parse_br(total_net_excel)
+                    if val_num == int(val_num):
+                        valores[chave_net] = f"{int(val_num)},00"
+                    else:
+                        valores[chave_net] = f"{val_num:.2f}".replace('.', ',')
+                    print(f"[OK] TOTAL NET WEIGHT importado da planilha: {valores[chave_net]}")
+                except Exception as e:
+                    print(f"[ERRO] Erro ao formatar TOTAL NET WEIGHT: {e}")
+            # 2) Se não tem total mas tem NET WEIGHT/PC, calcular
+            elif tem_qty and tem_nw_pc:
+                try:
+                    net_weight_pc = parse_br(net_weight_pc_val)
                     quantity = parse_br(valores['QUANTITY'])
                     total_net = net_weight_pc * quantity
-                    
                     if total_net == int(total_net):
-                        valores['TOTAL NET WEIGHT( kg )'] = f"{int(total_net)},00"
+                        valores[chave_net] = f"{int(total_net)},00"
                     else:
-                        valores['TOTAL NET WEIGHT( kg )'] = f"{total_net:.2f}".replace('.', ',')
-                    
-                    print(f"[OK] TOTAL NET WEIGHT calculado: {net_weight_val} × {valores['QUANTITY']} = {valores['TOTAL NET WEIGHT( kg )']}")
+                        valores[chave_net] = f"{total_net:.2f}".replace('.', ',')
+                    print(f"[OK] TOTAL NET WEIGHT calculado: {net_weight_pc_val} × {valores['QUANTITY']} = {valores[chave_net]}")
                 except Exception as e:
                     print(f"[ERRO] Erro no calculo TOTAL NET WEIGHT: {e}")
             elif total_importados < 5:
-                print(f"[PULOU] TOTAL NET WEIGHT - qty={valores.get('QUANTITY')}, nw={net_weight_val}")
+                print(f"[PULOU] TOTAL NET WEIGHT - sem valor na planilha e sem dados para calcular")
             
             # TOTAL GROSS WEIGHT: Usar valor da planilha se existir, senão calcular
             # Tentar várias chaves possíveis (nome original ou normalizado)
@@ -695,35 +728,63 @@ def importar_planilha(caminho_arquivo, cliente=None, progress_callback=None):
             elif total_importados < 5:
                 print(f"[PULOU] TOTAL GROSS WEIGHT - sem valor na planilha e sem dados para calcular")
             
-            # Calcular TOTAL CBM = (LENGTH × WIDTH × HEIGHT × TOTAL CTNS) / 1.000.000.000
+            # TOTAL CBM: Usar valor da planilha se existir, senão calcular
+            # Mesmo comportamento do TOTAL NET WEIGHT e TOTAL GROSS WEIGHT
+            total_cbm_excel = None
+            for chave in ['TOTAL CBM', 'TOTAL_CBM', 'total_cbm']:
+                if valores.get(chave):
+                    total_cbm_excel = str(valores.get(chave)).strip()
+                    if total_importados < 5:
+                        print(f"[DEBUG] TOTAL CBM encontrado na chave '{chave}': '{total_cbm_excel}'")
+                    break
+
+            # Dimensoes para calculo (fallback)
             length_val = valores.get('LENGTH CTN')
             width_val = valores.get('WIDTH CTN')
             height_val = valores.get('HEIGHT CTN')
             ctns_val = valores.get('TOTAL CTNS')
-            
+
             tem_dimensoes = length_val and str(length_val).strip() and width_val and str(width_val).strip() and height_val and str(height_val).strip()
             tem_ctns = ctns_val and str(ctns_val).strip()
-            
-            if tem_dimensoes and tem_ctns:
+
+            if total_importados < 5:
+                print(f"[DEBUG] TOTAL CBM excel='{total_cbm_excel}', dims={'OK' if tem_dimensoes else 'FALTA'}, ctns={'OK' if tem_ctns else 'FALTA'}")
+
+            # Detectar qual chave usar para salvar (a que existe no dicionário)
+            chave_cbm = None
+            for chave in ['TOTAL CBM', 'TOTAL_CBM']:
+                if chave in valores:
+                    chave_cbm = chave
+                    break
+            if not chave_cbm:
+                chave_cbm = 'TOTAL CBM'  # fallback
+
+            # 1) Se já tem valor total na planilha (não-zero), usar ele
+            if total_cbm_excel and total_cbm_excel not in ['', '0', '0,00', '0.00', '0.0', '.', '0,0000']:
+                try:
+                    val_num = parse_br(total_cbm_excel)
+                    # CBM usa 4 casas decimais
+                    valores[chave_cbm] = f"{val_num:.4f}".replace('.', ',')
+                    print(f"[OK] TOTAL CBM importado da planilha: {valores[chave_cbm]}")
+                except Exception as e:
+                    print(f"[ERRO] Erro ao formatar TOTAL CBM: {e}")
+            # 2) Se não tem total mas tem dimensoes, calcular
+            elif tem_dimensoes and tem_ctns:
                 try:
                     length = parse_br(length_val)
                     width = parse_br(width_val)
                     height = parse_br(height_val)
                     ctns = parse_br(ctns_val)
-                    
+
                     # CBM = (L × W × H) / 1.000.000.000 (mm³ → m³) × CTNS
                     cbm = (length * width * height * ctns) / 1000000000
-                    
-                    if cbm == int(cbm):
-                        valores['TOTAL CBM'] = f"{int(cbm)},00"
-                    else:
-                        valores['TOTAL CBM'] = f"{cbm:.4f}".replace('.', ',')
-                    
-                    print(f"[OK] TOTAL CBM calculado: ({length} × {width} × {height} × {ctns}) / 10⁹ = {valores['TOTAL CBM']}")
+                    valores[chave_cbm] = f"{cbm:.4f}".replace('.', ',')
+
+                    print(f"[OK] TOTAL CBM calculado: ({length} × {width} × {height} × {ctns}) / 10⁹ = {valores[chave_cbm]}")
                 except Exception as e:
                     print(f"[ERRO] Erro no calculo TOTAL CBM: {e}")
             elif total_importados < 5:
-                print(f"[PULOU] TOTAL CBM - dimensoes={tem_dimensoes}, ctns={tem_ctns}")
+                print(f"[PULOU] TOTAL CBM - sem valor na planilha e sem dados para calcular")
             
             # Adicionar campos fixos (igual ao sistema_plus.py)
             valores['cliente'] = cliente
