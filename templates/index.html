@@ -27,6 +27,9 @@
             <button type="button" class="btn btn-warning btn-lg px-5 mt-2" data-bs-toggle="modal" data-bs-target="#modalColunas">
                 <i class="fas fa-table"></i> Preencher Planilha
             </button>
+            <button type="button" class="btn btn-success btn-lg px-5 mt-2" data-bs-toggle="modal" data-bs-target="#modalCompartilharWifi">
+                <i class="fas fa-wifi"></i> Compartilhar no Wi-Fi
+            </button>
             <a href="https://www.youtube.com/shorts/eFIlXXC2-yU?feature=share" target="_blank" class="btn btn-danger btn-lg px-3 mt-2" title="Tutorial 1 - Como carregar fotos">
                 <i class="fab fa-youtube"></i> Tutorial 1
             </a>
@@ -497,5 +500,96 @@ function baixarExecutarSistema() {
         }, 2000);
     }, 3000);
 }
+</script>
+
+<!-- Modal: Compartilhar Wi-Fi (gera link para colaboradores) -->
+<div class="modal fade" id="modalCompartilharWifi" tabindex="-1" aria-labelledby="modalCompartilharWifiLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="modalCompartilharWifiLabel">
+          <i class="fas fa-wifi"></i> Compartilhar o sistema no mesmo Wi-Fi
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info">
+          <strong><i class="fas fa-info-circle"></i> Para que serve?</strong><br>
+          Use este comando para gerar um <strong>link compartilhável</strong> com sua equipe.
+          Todos que estiverem no <strong>MESMO Wi-Fi</strong> vão conseguir acessar o sistema
+          através do mesmo <code>Planilhas.exe</code> rodando neste PC.
+        </div>
+
+        <h6 class="fw-bold mt-3"><i class="fas fa-list-ol text-primary"></i> Passo a passo</h6>
+        <ol class="mb-3">
+          <li>Mantenha o <code>Planilhas.exe</code> <strong>aberto</strong> neste PC</li>
+          <li>Clique no botão <strong>"Copiar comando"</strong> abaixo</li>
+          <li>Abra o <strong>PowerShell</strong> (tecla Windows → digite <em>powershell</em> → Enter)</li>
+          <li>Cole com <kbd>Ctrl</kbd>+<kbd>V</kbd> e tecle <kbd>Enter</kbd></li>
+          <li>O link já vai estar copiado → cole no WhatsApp com <kbd>Ctrl</kbd>+<kbd>V</kbd></li>
+          <li>Também é salvo em <code>Link.txt</code> na pasta atual</li>
+        </ol>
+
+        <label class="form-label fw-bold mb-1">
+          <i class="fas fa-terminal text-success"></i> Comando PowerShell
+        </label>
+        <div class="position-relative">
+          <pre id="comandoWifi" class="bg-dark text-light p-3 rounded" style="font-size: 12px; max-height: 220px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">$ip=(Test-Connection -ComputerName $env:COMPUTERNAME -Count 1).IPV4Address.IPAddressToString; $link="http://${ip}:5000/comecar?next=/executar-sistema"; Set-Content -Path "Link.txt" -Value "=== LINK PARA COMPARTILHAR ===`n`n$link`n`nLogin: admin@planilhas.com`nSenha: admin123" -Encoding UTF8; Set-Clipboard -Value $link; Write-Host "`n&gt;&gt; Link gerado: $link" -ForegroundColor Green; Write-Host "&gt;&gt; Copiado para Ctrl+V e salvo em Link.txt`n"</pre>
+        </div>
+
+        <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+          <button type="button" class="btn btn-success btn-lg" id="btnCopiarComandoWifi">
+            <i class="fas fa-copy"></i> Copiar comando
+          </button>
+        </div>
+
+        <div class="alert alert-warning mt-3 mb-0">
+          <strong><i class="fas fa-shield-alt"></i> Primeira vez?</strong><br>
+          Se os colegas não conseguirem abrir o link, libere a porta 5000 no firewall do Windows (1 vez só).<br>
+          Abra o PowerShell <strong>como Administrador</strong> (clique direito → Executar como administrador) e cole:
+          <pre class="bg-light p-2 rounded mt-2 mb-0" style="font-size: 12px;">netsh advfirewall firewall add rule name="Planilhas LAN 5000" dir=in action=allow protocol=TCP localport=5000</pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+    var btn = document.getElementById('btnCopiarComandoWifi');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        var pre = document.getElementById('comandoWifi');
+        // Recupera texto puro (sem &gt; HTML-escapado)
+        var texto = pre.textContent.replace(/&gt;/g, '>');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(texto).then(function() {
+                btn.innerHTML = '<i class="fas fa-check"></i> Copiado!';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-primary');
+                setTimeout(function() {
+                    btn.innerHTML = '<i class="fas fa-copy"></i> Copiar comando';
+                    btn.classList.remove('btn-primary');
+                    btn.classList.add('btn-success');
+                }, 2200);
+            }).catch(function(err) {
+                alert('Não foi possível copiar automaticamente. Selecione o texto e copie com Ctrl+C.');
+                console.error(err);
+            });
+        } else {
+            // Fallback antigo
+            var ta = document.createElement('textarea');
+            ta.value = texto;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); btn.innerHTML = '<i class="fas fa-check"></i> Copiado!'; }
+            catch(e) { alert('Selecione o texto e copie com Ctrl+C.'); }
+            document.body.removeChild(ta);
+        }
+    });
+})();
 </script>
 {% endblock %}
